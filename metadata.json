@@ -1,0 +1,5 @@
+{
+  "name": "Simulador Esportivo Pro",
+  "description": "Simulador de resultados de jogos utilizando IA e dados reais de estatísticas esportivas.",
+  "requestFramePermissions": []
+}
