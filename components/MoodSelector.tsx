@@ -10,11 +10,16 @@ interface MoodSelectorProps {
 
 const MoodSelector: React.FC<MoodSelectorProps> = ({ label, value, onChange, colorClass }) => {
   return (
-    <div className="flex flex-col gap-2">
-      <label className={`text-sm font-semibold ${colorClass}`}>{label}</label>
-      <div className="flex gap-2">
+    <div className="flex flex-col gap-3 w-full">
+      <label className={`text-xs font-bold uppercase tracking-wider ${colorClass} text-center md:text-left`}>
+        {label}
+      </label>
+      
+      {/* Grid Layout para distribuição perfeita em 3 colunas */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-4 w-full">
         {Object.values(TeamMood).map((mood) => {
           let icon = '';
+          // Ícones maiores para melhor visualização
           switch (mood) {
             case TeamMood.EXCITED: icon = '🔥'; break;
             case TeamMood.REGULAR: icon = '😐'; break;
@@ -29,15 +34,23 @@ const MoodSelector: React.FC<MoodSelectorProps> = ({ label, value, onChange, col
               type="button"
               onClick={() => onChange(mood)}
               className={`
-                flex-1 py-2 px-3 rounded-lg text-sm border transition-all duration-200
-                flex flex-col items-center justify-center gap-1
+                group relative flex flex-col items-center justify-center gap-2 py-3 px-1 rounded-xl border transition-all duration-300
                 ${isSelected 
-                  ? 'bg-slate-700 border-indigo-500 text-white shadow-[0_0_10px_rgba(99,102,241,0.3)]' 
-                  : 'bg-slate-800 border-slate-600 text-slate-400 hover:bg-slate-700'}
+                  ? 'bg-slate-800 border-indigo-500/80 shadow-[0_0_15px_rgba(99,102,241,0.25)] ring-1 ring-indigo-500/50 transform scale-[1.02]' 
+                  : 'bg-slate-900/50 border-slate-700/50 hover:bg-slate-800 hover:border-slate-600 opacity-70 hover:opacity-100'}
               `}
             >
-              <span className="text-xl">{icon}</span>
-              <span className="text-xs">{mood}</span>
+              <span className={`text-2xl transition-transform duration-300 ${isSelected ? 'scale-110' : 'group-hover:scale-110 grayscale group-hover:grayscale-0'}`}>
+                {icon}
+              </span>
+              <span className={`text-[10px] sm:text-xs font-bold uppercase tracking-wide truncate w-full text-center ${isSelected ? 'text-white' : 'text-slate-500 group-hover:text-slate-300'}`}>
+                {mood}
+              </span>
+              
+              {/* Indicador de seleção ativo (ponto brilhante) */}
+              {isSelected && (
+                <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-indigo-400 shadow-[0_0_5px_currentColor]"></span>
+              )}
             </button>
           );
         })}

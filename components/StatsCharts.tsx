@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { 
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer,
@@ -43,8 +44,9 @@ export const ComparisonRadar: React.FC<StatsChartsProps> = ({ data }) => {
             fillOpacity={0.3}
           />
           <Tooltip 
-            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#fff', fontSize: '12px' }}
-            itemStyle={{ color: '#fff' }}
+            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)' }}
+            itemStyle={{ color: '#f8fafc', fontWeight: '500' }}
+            labelStyle={{ color: '#94a3b8' }}
           />
           <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }}/>
         </RadarChart>
@@ -60,7 +62,8 @@ export const ProbabilityPie: React.FC<StatsChartsProps> = ({ data }) => {
     { name: `Vitória ${data.awayTeam.name}`, value: data.awayTeam.winProbability },
   ];
 
-  const COLORS = ['#2563eb', '#64748b', '#dc2626'];
+  // Cores semânticas: Azul (Home), Cinza (Empate), Vermelho (Away)
+  const COLORS = ['#3b82f6', '#94a3b8', '#ef4444'];
 
   return (
     <div className="h-64 w-full">
@@ -81,10 +84,11 @@ export const ProbabilityPie: React.FC<StatsChartsProps> = ({ data }) => {
             ))}
           </Pie>
           <Tooltip 
-             contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#fff', borderRadius: '8px', fontSize: '12px' }}
+             contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)' }}
+             itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }}
              formatter={(value: number) => [`${value}%`, 'Probabilidade']}
           />
-          <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px' }}/>
+          <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', color: '#cbd5e1' }}/>
         </PieChart>
       </ResponsiveContainer>
     </div>
@@ -112,7 +116,9 @@ export const ScoreProbabilitiesChart: React.FC<StatsChartsProps> = ({ data }) =>
           />
           <Tooltip
             cursor={{fill: '#1e293b', opacity: 0.5}}
-            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#fff', borderRadius: '8px' }}
+            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)' }}
+            itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }}
+            labelStyle={{ color: '#94a3b8' }}
             formatter={(value: number) => [`${value}%`, 'Chance']}
           />
           <Bar dataKey="probability" radius={[0, 4, 4, 0]} barSize={16}>

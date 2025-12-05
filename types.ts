@@ -5,6 +5,14 @@ export enum TeamMood {
   DEMOTIVATED = 'Desmotivado',
 }
 
+export enum RiskLevel {
+  CONSERVATIVE = 'Conservador',
+  CALCULATED = 'Calculado', // Novo: Entre Conservador e Moderado
+  MODERATE = 'Moderado',
+  AGGRESSIVE = 'Agressivo', // Novo: Entre Moderado e Ousado
+  BOLD = 'Ousado',
+}
+
 export interface PlayerStats {
   name: string;
   position: string;
@@ -24,13 +32,24 @@ export interface TeamAnalysis {
   attackRating: number; // 0-100
   defenseRating: number; // 0-100
   possessionEst: number; // 0-100
+  aerialAttackRating?: number; // Novo: Força no jogo aéreo ofensivo (0-100)
+  aerialDefenseRating?: number; // Novo: Força no jogo aéreo defensivo (0-100)
   keyPlayers: PlayerStats[];
   recentForm: string[]; // e.g., ["W", "D", "L", "W", "W"]
+  statsText?: string; // Novo: Texto de aproveitamento (ex: "80% de vitórias em casa")
 }
 
 export interface Lineups {
   home: string[];
   away: string[];
+}
+
+export interface WeatherInfo {
+  condition: string; // "Chuvoso", "Ensolarado", "Nublado"
+  temp: string; // "24°C"
+  probability: string; // "60% chuva"
+  location: string; // "Maracanã, Rio de Janeiro"
+  pitchType?: string; // Novo: "Natural", "Sintético", "Híbrido"
 }
 
 export interface SimulationResult {
@@ -52,6 +71,7 @@ export interface SimulationResult {
   matchDate: string;
   bettingTip: string; // Texto descritivo da sugestão
   bettingTipCode: string; // Código para validação: '1', 'X', '2', '1X', 'X2', '12', 'ALL'
+  weather?: WeatherInfo; // Novo campo de clima
 }
 
 export interface MatchInput {
@@ -60,7 +80,8 @@ export interface MatchInput {
   date: string;
   homeMood: TeamMood;
   awayMood: TeamMood;
-  observations?: string; // Novo campo de observações
+  observations?: string;
+  riskLevel: RiskLevel;
 }
 
 // Interfaces para o modo em lote
@@ -83,4 +104,15 @@ export interface BatchResultItem {
   summary: string; // Breve justificativa
   bettingTip: string; // Sugestão de aposta (Seco, Duplo, Triplo)
   bettingTipCode: string; // Código para validação: '1', 'X', '2', '1X', 'X2', '12', 'ALL'
+  weatherText?: string; // Novo: Ex: "Chuva, 22°C"
+  statsSummary?: string; // Novo: Ex: "Mandante venceu 4 dos últimos 5"
+}
+
+export interface LoteriaPrizeInfo {
+  concurso: string;
+  prize14: string; // Ex: "R$ 1.500.000,00"
+  winners14: number;
+  prize13: string;
+  winners13: number;
+  accumulated: boolean;
 }

@@ -1,8 +1,10 @@
+
 import React, { useState } from 'react';
-import { MatchInput, TeamMood, SimulationResult } from './types';
+import { MatchInput, TeamMood, SimulationResult, RiskLevel } from './types';
 import MoodSelector from './components/MoodSelector';
 import ResultView from './components/ResultView';
 import BatchMode from './components/BatchMode';
+import RiskSelector from './components/RiskSelector';
 import { runSimulation } from './services/geminiService';
 import { Loader2, Calendar, Search, Layers, Activity, Trophy, MessageSquare } from 'lucide-react';
 
@@ -19,6 +21,7 @@ const App: React.FC = () => {
     homeMood: TeamMood.REGULAR,
     awayMood: TeamMood.REGULAR,
     observations: '',
+    riskLevel: RiskLevel.MODERATE,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -172,6 +175,12 @@ const App: React.FC = () => {
                         />
                       </div>
                     </div>
+
+                     {/* Risk Level Selector */}
+                     <RiskSelector 
+                       value={input.riskLevel}
+                       onChange={(level) => setInput({ ...input, riskLevel: level })}
+                     />
 
                      {/* Observations Input */}
                      <div className="space-y-2">

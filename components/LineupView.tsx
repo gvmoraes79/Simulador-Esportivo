@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Lineups } from '../types';
 import { Users } from 'lucide-react';
@@ -9,7 +10,7 @@ interface LineupViewProps {
 }
 
 const LineupView: React.FC<LineupViewProps> = ({ lineups, homeTeamName, awayTeamName }) => {
-  if (!lineups || !lineups.home || !lineups.away) {
+  if (!lineups || !Array.isArray(lineups.home) || !Array.isArray(lineups.away)) {
     return null;
   }
 

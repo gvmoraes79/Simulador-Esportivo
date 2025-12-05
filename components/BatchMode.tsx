@@ -1,8 +1,11 @@
 
-import React, { useState, useMemo } from 'react';
-import { BatchMatchInput, BatchResultItem } from '../types';
-import { runBatchSimulation, fetchLoteriaMatches, checkMatchResults } from '../services/geminiService';
-import { Plus, Trash2, Play, Loader2, Download, Search, Ticket, Check, AlertCircle, Trophy, Lightbulb, TrendingUp, RotateCcw, X, Info } from 'lucide-react';
+import React, { useState, useMemo, useRef } from 'react';
+import { BatchMatchInput, BatchResultItem, RiskLevel, LoteriaPrizeInfo } from '../types';
+import { runBatchSimulation, fetchLoteriaMatches, checkMatchResults, fetchLoteriaPrizeInfo } from '../services/geminiService';
+import RiskSelector from './RiskSelector';
+import { Plus, Trash2, Play, Loader2, Download, Search, Ticket, Check, AlertCircle, Trophy, Lightbulb, TrendingUp, RotateCcw, X, Info, Grid3X3, Settings, MessageSquare, FileDown, Banknote, Calculator, AlertTriangle, Cloud, CloudRain, Sun, BarChart2, Users } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 const BatchMode: React.FC = () => {
   const [matches, setMatches] = useState<BatchMatchInput[]>([
@@ -11,12 +14,32 @@ const BatchMode: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [loadingLoteria, setLoadingLoteria] = useState(false);
   const [loadingResults, setLoadingResults] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [results, setResults] = useState<BatchResultItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loteriaConcurso, setLoteriaConcurso] = useState('');
+  const [prizeInfo, setPrizeInfo] = useState<LoteriaPrizeInfo | null>(null);
+  
+  const [progress, setProgress] = useState<{ current: number, total: number, message: string }>({ current: 0, total: 0, message: '' });
+
+  const ticketRef = useRef<HTMLDivElement>(null);
+  const [riskLevel, setRiskLevel] = useState<RiskLevel>(RiskLevel.MODERATE);
+  const [globalObservations, setGlobalObservations] = useState('');
+
+  const hasValidScore = (score: number | string | undefined | null) => {
+    if (score === undefined || score === null || score === '') return false;
+    const num = Number(score);
+    return !isNaN(num);
+  };
+
+  const allGamesHaveResults = useMemo(() => {
+     return matches.length > 0 && matches.every(m => 
+       hasValidScore(m.actualHomeScore) && hasValidScore(m.actualAwayScore)
+     );
+  }, [matches]);
 
   const addMatch = () => {
-    const lastId = matches.length > 0 ? parseInt(matches[matches.length - 1].id) : 0;
+    const lastId = matches.length > 0 ? parseInt(matches[matches.length - 1].id, 10) : 0;
     const newId = (lastId + 1).toString();
     setMatches([...matches, { id: newId, homeTeam: '', awayTeam: '', date: new Date().toISOString().split('T')[0] }]);
   };
@@ -35,6 +58,7 @@ const BatchMode: React.FC = () => {
     setLoadingLoteria(true);
     setError(null);
     setResults([]);
+    setPrizeInfo(null);
     try {
       const loteriaMatches = await fetchLoteriaMatches(loteriaConcurso);
       if (loteriaMatches && loteriaMatches.length > 0) {
@@ -72,18 +96,69 @@ const BatchMode: React.FC = () => {
     setLoading(true);
     setError(null);
     setResults([]);
+    setPrizeInfo(null);
+    setProgress({ current: 0, total: matches.length, message: 'Iniciando...' });
 
     try {
-      const data = await runBatchSimulation(matches);
+      // 1. Simulação Blind Test (Jogo a Jogo com Progresso)
+      const data = await runBatchSimulation(matches, riskLevel, globalObservations, (curr, tot, msg) => {
+         setProgress({ current: curr, total: tot, message: msg });
+      });
       setResults(data);
+
+      // 2. Se for um concurso específico (Resultados já existem), buscar dados do prêmio
+      if (loteriaConcurso) {
+         // Mesmo sem placares preenchidos, buscamos a info do concurso para saber estimativa
+         const prizeData = await fetchLoteriaPrizeInfo(loteriaConcurso);
+         setPrizeInfo(prizeData);
+      }
+
     } catch (e) {
       setError("Erro ao simular em lote. Tente menos jogos ou verifique a conexão.");
     } finally {
       setLoading(false);
+      setProgress({ current: 0, total: 0, message: '' });
     }
   };
 
-  // Helper function to determine hit/miss based on Betting Tip Code
+  const handleDownloadPDF = async () => {
+    if (!ticketRef.current) return;
+    
+    setIsGeneratingPdf(true);
+    try {
+      const canvas = await html2canvas(ticketRef.current, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        logging: false
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('l', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      
+      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+      const margin = 10;
+      const finalImgWidth = pdfWidth - (margin * 2);
+      const finalImgHeight = (imgHeight * finalImgWidth) / imgWidth;
+
+      pdf.addImage(imgData, 'PNG', margin, margin, finalImgWidth, finalImgHeight);
+      pdf.setFontSize(10);
+      pdf.setTextColor(150);
+      pdf.text(`Simulação gerada em ${new Date().toLocaleDateString()}`, margin, pdfHeight - 10);
+
+      pdf.save(`volante-loteria-${loteriaConcurso || 'simulacao'}.pdf`);
+    } catch (err) {
+      console.error("Erro ao gerar PDF:", err);
+      setError("Não foi possível gerar o PDF. Tente novamente.");
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
   const checkPrediction = (res: BatchResultItem, actualHome: number, actualAway: number) => {
     const actualResult = 
       actualHome > actualAway ? '1' :
@@ -91,12 +166,10 @@ const BatchMode: React.FC = () => {
     
     const tip = res.bettingTipCode ? res.bettingTipCode.toUpperCase() : '';
 
-    if (tip === 'ALL') return true; // Triplo acerta sempre
+    if (tip === 'ALL') return true;
     if (tip === '1' && actualResult === '1') return true;
     if (tip === '2' && actualResult === '2') return true;
     if (tip === 'X' && actualResult === 'X') return true;
-    
-    // Dupla Chance
     if (tip === '1X' && (actualResult === '1' || actualResult === 'X')) return true;
     if (tip === 'X2' && (actualResult === 'X' || actualResult === '2')) return true;
     if (tip === '12' && (actualResult === '1' || actualResult === '2')) return true;
@@ -104,7 +177,6 @@ const BatchMode: React.FC = () => {
     return false;
   };
 
-  // Translate betting codes to readable text
   const getTipDescription = (code: string) => {
     const c = code ? code.toUpperCase() : '';
     switch(c) {
@@ -119,7 +191,6 @@ const BatchMode: React.FC = () => {
     }
   };
 
-  // Lógica de comparação de resultados
   const accuracyStats = useMemo(() => {
     if (results.length === 0) return null;
 
@@ -130,10 +201,10 @@ const BatchMode: React.FC = () => {
     results.forEach(res => {
       const matchInput = matches.find(m => m.id === res.id);
       if (matchInput && 
-          matchInput.actualHomeScore !== undefined && matchInput.actualHomeScore !== null &&
-          matchInput.actualAwayScore !== undefined && matchInput.actualAwayScore !== null) {
+          hasValidScore(matchInput.actualHomeScore) && 
+          hasValidScore(matchInput.actualAwayScore)) {
         totalWithResults++;
-        if (checkPrediction(res, matchInput.actualHomeScore, matchInput.actualAwayScore)) {
+        if (checkPrediction(res, Number(matchInput.actualHomeScore), Number(matchInput.actualAwayScore))) {
           hits++;
         } else {
           misses++;
@@ -151,12 +222,39 @@ const BatchMode: React.FC = () => {
     };
   }, [results, matches]);
 
+  const betCost = useMemo(() => {
+    if (results.length === 0) return null;
+
+    let doubles = 0;
+    let triples = 0;
+
+    results.forEach(res => {
+      const tip = res.bettingTipCode ? res.bettingTipCode.toUpperCase() : '';
+      if (['1X', 'X2', '12'].includes(tip)) doubles++;
+      if (tip === 'ALL' || tip === '1X2') triples++;
+    });
+
+    const unitPrice = 1.50; 
+    const combinations = Math.pow(2, doubles) * Math.pow(3, triples);
+    const total = combinations * unitPrice;
+    
+    const isBelowMinimum = total < 3.00;
+
+    return {
+      doubles,
+      triples,
+      combinations,
+      total,
+      isBelowMinimum
+    };
+  }, [results]);
+
   const getResultBadge = (res: BatchResultItem) => {
     const matchInput = matches.find(m => m.id === res.id);
-    if (!matchInput || matchInput.actualHomeScore === undefined || matchInput.actualHomeScore === null || matchInput.actualAwayScore === undefined) return null;
+    if (!matchInput || !hasValidScore(matchInput.actualHomeScore) || !hasValidScore(matchInput.actualAwayScore)) return null;
 
-    const actualHome = matchInput.actualHomeScore;
-    const actualAway = matchInput.actualAwayScore!;
+    const actualHome = Number(matchInput.actualHomeScore);
+    const actualAway = Number(matchInput.actualAwayScore);
     const isHit = checkPrediction(res, actualHome, actualAway);
 
     return (
@@ -174,9 +272,123 @@ const BatchMode: React.FC = () => {
     );
   };
 
+  const getWeatherIconMini = (text?: string) => {
+      if (!text) return null;
+      const t = text.toLowerCase();
+      if (t.includes('chuva') || t.includes('rain')) return <CloudRain size={14} className="text-blue-400" />;
+      if (t.includes('sol') || t.includes('limpo')) return <Sun size={14} className="text-yellow-400" />;
+      return <Cloud size={14} className="text-slate-400" />;
+  };
+
+  const getMyPrizeStatus = (hits: number) => {
+     if (hits === 14) return { status: "ZONA DE PREMIAÇÃO MÁXIMA", color: "text-emerald-400", bg: "bg-emerald-500/20" };
+     if (hits === 13) return { status: "PREMIAÇÃO SECUNDÁRIA", color: "text-blue-400", bg: "bg-blue-500/20" };
+     return { status: "FORA DA PREMIAÇÃO", color: "text-slate-400", bg: "bg-slate-800" };
+  };
+
   return (
     <div className="space-y-8 animate-fade-in-up">
-      {/* Import Section - Ticket Style */}
+      {/* 
+        NOVO PAINEL DE APURAÇÃO INTEGRADO
+        Combina acertos do usuário + Dados Oficiais de Premiação
+      */}
+      {results.length > 0 && accuracyStats && (
+        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-2xl border border-slate-700 shadow-[0_0_40px_rgba(0,0,0,0.6)] relative overflow-hidden mb-8">
+           {/* Efeito de Fundo */}
+           <div className="absolute top-0 right-0 w-64 h-full bg-gradient-to-l from-emerald-500/5 to-transparent pointer-events-none"></div>
+
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-6 relative z-10">
+              
+              {/* LADO ESQUERDO: PERFORMANCE DO USUÁRIO */}
+              <div className="flex flex-col justify-between border-b md:border-b-0 md:border-r border-white/5 pb-6 md:pb-0 md:pr-6">
+                  <div>
+                    <h2 className="text-white font-black text-xl uppercase tracking-wide flex items-center gap-2 mb-2">
+                        <Trophy className="text-yellow-500" size={24} /> Desempenho do Bilhete
+                    </h2>
+                    <div className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider w-fit border border-white/10 ${getMyPrizeStatus(accuracyStats.hits).bg} ${getMyPrizeStatus(accuracyStats.hits).color}`}>
+                        {getMyPrizeStatus(accuracyStats.hits).status}
+                    </div>
+                  </div>
+                  
+                  <div className="mt-4 flex items-center gap-4">
+                      <div className="flex flex-col items-center justify-center bg-black/40 p-4 rounded-xl border border-white/10 min-w-[120px]">
+                        <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">Pontos</div>
+                        <div className="flex items-baseline gap-1">
+                            <span className={`text-5xl font-black tracking-tighter ${accuracyStats.hits >= 13 ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'text-white'}`}>
+                            {accuracyStats.hits}
+                            </span>
+                            <span className="text-sm font-bold text-slate-600">/ 14</span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-col justify-center gap-2">
+                          <div className="flex items-center gap-2 text-xs text-slate-300">
+                             <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                             {accuracyStats.hits} Acertos
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-slate-300">
+                             <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                             {accuracyStats.misses} Erros
+                          </div>
+                          <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-wider font-bold">
+                             {accuracyStats.percentage}% Precisão
+                          </div>
+                      </div>
+                  </div>
+              </div>
+
+              {/* LADO DIREITO: DADOS FINANCEIROS OFICIAIS */}
+              <div className="flex flex-col justify-center h-full">
+                 <h3 className="text-slate-400 font-bold text-xs uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <Banknote size={16} className="text-green-400"/> Rateio Oficial (Concurso {prizeInfo?.concurso || "--"})
+                 </h3>
+                 
+                 {prizeInfo ? (
+                    <div className="space-y-3">
+                       {/* 14 Pontos */}
+                       <div className="bg-slate-950/50 p-3 rounded-xl border border-white/5 flex justify-between items-center group hover:border-emerald-500/30 transition-colors">
+                          <div className="flex items-center gap-3">
+                             <div className="bg-emerald-500/10 p-2 rounded-lg text-emerald-400 font-bold text-xs group-hover:bg-emerald-500 group-hover:text-black transition-colors">14 Pts</div>
+                             <div className="flex flex-col">
+                                <span className={`font-black text-lg ${prizeInfo.prize14.includes('ACUMULOU') ? 'text-blue-400' : 'text-white'}`}>
+                                   {prizeInfo.prize14}
+                                </span>
+                                <span className="text-[10px] text-slate-500 uppercase tracking-wide flex items-center gap-1">
+                                   <Users size={10} /> {prizeInfo.winners14} Ganhador(es)
+                                </span>
+                             </div>
+                          </div>
+                          {prizeInfo.accumulated && (
+                             <div className="text-[9px] font-black text-blue-300 bg-blue-900/30 px-2 py-1 rounded border border-blue-500/30">ACUMULOU</div>
+                          )}
+                       </div>
+
+                       {/* 13 Pontos */}
+                       <div className="bg-slate-950/50 p-3 rounded-xl border border-white/5 flex justify-between items-center group hover:border-blue-500/30 transition-colors">
+                          <div className="flex items-center gap-3">
+                             <div className="bg-blue-500/10 p-2 rounded-lg text-blue-400 font-bold text-xs group-hover:bg-blue-500 group-hover:text-black transition-colors">13 Pts</div>
+                             <div className="flex flex-col">
+                                <span className="font-bold text-white text-base">
+                                   {prizeInfo.prize13}
+                                </span>
+                                <span className="text-[10px] text-slate-500 uppercase tracking-wide flex items-center gap-1">
+                                   <Users size={10} /> {prizeInfo.winners13} Ganhador(es)
+                                </span>
+                             </div>
+                          </div>
+                       </div>
+                    </div>
+                 ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-center py-4 bg-black/20 rounded-xl border border-dashed border-slate-700">
+                       <Loader2 size={24} className="animate-spin text-slate-600 mb-2" />
+                       <span className="text-xs text-slate-500">Buscando informações oficiais...</span>
+                    </div>
+                 )}
+              </div>
+           </div>
+        </div>
+      )}
+
       <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl p-6 shadow-xl border border-slate-700 relative overflow-hidden">
         <div className="absolute right-0 top-0 h-full w-24 bg-gradient-to-l from-yellow-500/10 to-transparent"></div>
         <h3 className="text-white font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">
@@ -201,7 +413,6 @@ const BatchMode: React.FC = () => {
         </div>
       </div>
 
-      {/* Manual Input Section */}
       <div className="bg-slate-900/80 backdrop-blur-md rounded-3xl p-6 shadow-2xl border border-slate-800">
         <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
           <h2 className="text-xl font-bold text-white flex items-center gap-2 uppercase">
@@ -228,36 +439,26 @@ const BatchMode: React.FC = () => {
 
         <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
           {matches.map((match, index) => {
-            // Logic to verify hit/miss inside the list
             const result = results.find(r => r.id === match.id);
             let statusIcon = null;
             
-            // Verifica se tem resultado da IA E placar real completo
-            if (result && 
-                match.actualHomeScore !== undefined && match.actualHomeScore !== null &&
-                match.actualAwayScore !== undefined && match.actualAwayScore !== null) {
+            // Validação Robusta para Ícone na Lista
+            if (result && hasValidScore(match.actualHomeScore) && hasValidScore(match.actualAwayScore)) {
+               const isHit = checkPrediction(result, Number(match.actualHomeScore), Number(match.actualAwayScore));
                
-               const isHit = checkPrediction(result, match.actualHomeScore, match.actualAwayScore);
-               
-               // Tooltip Content Data
                const tipCode = result.bettingTipCode || '?';
                const tipDesc = getTipDescription(tipCode);
                const actualRes = `${match.actualHomeScore}x${match.actualAwayScore}`;
                
                statusIcon = (
                  <div className="relative group/tooltip cursor-help">
-                    {/* The Icon */}
                     {isHit 
                       ? <div className="bg-emerald-500/20 p-1.5 rounded-full text-emerald-500 border border-emerald-500/50 flex items-center justify-center shadow-[0_0_10px_rgba(16,185,129,0.3)]"><Check size={16} strokeWidth={3} /></div> 
                       : <div className="bg-red-500/20 p-1.5 rounded-full text-red-500 border border-red-500/50 flex items-center justify-center shadow-[0_0_10px_rgba(239,68,68,0.3)]"><X size={16} strokeWidth={3} /></div>
                     }
-
-                    {/* The Detailed Tooltip */}
                     <div className="absolute left-full top-1/2 -translate-y-1/2 ml-3 w-56 hidden group-hover/tooltip:block z-50 animate-fade-in">
                        <div className="bg-slate-900 border border-slate-700 rounded-lg p-3 shadow-2xl relative">
-                          {/* Triangle Arrow */}
                           <div className="absolute right-full top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-900 border-l border-b border-slate-700 transform rotate-45 -mr-1"></div>
-                          
                           <div className={`text-xs font-black uppercase mb-1 ${isHit ? 'text-emerald-400' : 'text-red-400'}`}>
                              {isHit ? 'Acertou!' : 'Errou!'}
                           </div>
@@ -292,13 +493,13 @@ const BatchMode: React.FC = () => {
                     type="text"
                     placeholder="Mandante"
                     className="w-full bg-transparent border-b border-slate-800 px-2 py-1 text-sm text-blue-200 placeholder:text-slate-700 focus:border-blue-500 outline-none text-center font-semibold"
-                    value={match.homeTeam}
+                    value={match.homeTeam || ''}
                     onChange={(e) => updateMatch(match.id, 'homeTeam', e.target.value)}
                   />
                 </div>
                 <div className="col-span-1 flex flex-col items-center justify-center">
                    <span className="text-slate-700 text-[10px] font-black">X</span>
-                   {(match.actualHomeScore !== undefined && match.actualHomeScore !== null) && (
+                   {(hasValidScore(match.actualHomeScore) && hasValidScore(match.actualAwayScore)) && (
                      <span className="text-[10px] text-yellow-500 font-bold font-mono whitespace-nowrap bg-yellow-500/10 px-1 rounded mt-1">
                        {match.actualHomeScore}-{match.actualAwayScore}
                      </span>
@@ -309,7 +510,7 @@ const BatchMode: React.FC = () => {
                     type="text"
                     placeholder="Visitante"
                     className="w-full bg-transparent border-b border-slate-800 px-2 py-1 text-sm text-red-200 placeholder:text-slate-700 focus:border-red-500 outline-none text-center font-semibold"
-                    value={match.awayTeam}
+                    value={match.awayTeam || ''}
                     onChange={(e) => updateMatch(match.id, 'awayTeam', e.target.value)}
                   />
                 </div>
@@ -317,13 +518,12 @@ const BatchMode: React.FC = () => {
                   <input
                     type="date"
                     className="w-full bg-transparent text-slate-500 text-xs text-center outline-none cursor-pointer"
-                    value={match.date}
+                    value={match.date || ''}
                     onChange={(e) => updateMatch(match.id, 'date', e.target.value)}
                     onClick={(e) => {
                       try {
                         e.currentTarget.showPicker();
                       } catch {
-                        // Ignore if not supported
                       }
                     }}
                   />
@@ -344,67 +544,61 @@ const BatchMode: React.FC = () => {
           )}
         </div>
 
+        <div className="mt-8 pt-6 border-t border-slate-800">
+           <div className="flex items-center gap-2 mb-4 text-white font-bold uppercase tracking-wider text-sm">
+             <Settings size={16} className="text-slate-400" /> Estratégia de Simulação
+           </div>
+           
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-950 p-5 rounded-2xl border border-slate-800/50">
+              <div>
+                <RiskSelector value={riskLevel} onChange={setRiskLevel} />
+              </div>
+              
+              <div>
+                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block text-center md:text-left flex items-center gap-2">
+                    <MessageSquare size={14} /> Observações da Rodada
+                 </label>
+                 <textarea
+                   className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-3 text-white text-xs font-medium focus:ring-1 focus:ring-slate-500 outline-none resize-none h-24"
+                   placeholder="Ex: Muitos jogos na chuva, rodada pós-data FIFA, clássicos regionais..."
+                   value={globalObservations}
+                   onChange={(e) => setGlobalObservations(e.target.value)}
+                 />
+              </div>
+           </div>
+        </div>
+
         {error && <div className="mt-4 text-red-400 text-sm text-center bg-red-950/50 border border-red-900 p-3 rounded-lg">{error}</div>}
 
         <button
           onClick={handleSimulate}
           disabled={loading || matches.length === 0}
-          className="w-full mt-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black uppercase tracking-widest py-4 rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed border-t border-white/10"
+          className={`w-full mt-6 bg-gradient-to-r text-white font-black uppercase tracking-widest py-4 rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed border-t border-white/10 ${allGamesHaveResults ? 'from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500' : 'from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500'}`}
         >
-          {loading ? <Loader2 className="animate-spin" /> : <Play size={18} fill="currentColor" />}
-          PROCESSAR SIMULAÇÃO ({matches.length})
+          {loading ? (
+             <div className="flex items-center gap-2">
+                <Loader2 className="animate-spin" /> 
+                <span className="text-xs font-mono">{progress.message || "PROCESSANDO..."}</span>
+                {progress.total > 0 && <span className="bg-black/20 px-2 rounded text-xs">({Math.round((progress.current/progress.total)*100)}%)</span>}
+             </div>
+          ) : (
+            allGamesHaveResults ? <BarChart2 size={18} /> : <Play size={18} fill="currentColor" />
+          )}
+          {!loading && (allGamesHaveResults ? "SAIBA MINHA MARGEM DE ACERTO" : `PROCESSAR SIMULAÇÃO (${matches.length})`)}
         </button>
       </div>
 
-      {/* Accuracy Stats Header */}
-      {results.length > 0 && accuracyStats && (
-        <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl p-6 border border-slate-700 shadow-2xl relative overflow-hidden animate-fade-in-up">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.1),transparent)] pointer-events-none"></div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-             <div className="flex items-center gap-4">
-                  <div className="bg-yellow-500/20 p-3 rounded-full text-yellow-500 border border-yellow-500/30">
-                    <Trophy size={32} />
-                  </div>
-                  <div>
-                    <h3 className="text-white font-bold text-lg uppercase tracking-wide">Precisão das Sugestões</h3>
-                    <p className="text-slate-400 text-sm">Comparação: Aposta IA vs Resultado Real</p>
-                  </div>
-              </div>
-
-              <div className="flex justify-around md:justify-center gap-8">
-                 <div className="text-center">
-                    <div className="text-2xl font-black text-emerald-400">{accuracyStats.hits}</div>
-                    <div className="text-[10px] text-emerald-500/70 uppercase font-bold tracking-wider">Acertos</div>
-                 </div>
-                 <div className="text-center">
-                    <div className="text-2xl font-black text-red-400">{accuracyStats.misses}</div>
-                    <div className="text-[10px] text-red-500/70 uppercase font-bold tracking-wider">Erros</div>
-                 </div>
-              </div>
-
-              <div className="text-center md:text-right bg-slate-950/30 p-4 rounded-xl border border-slate-700">
-                <div className="text-xs text-slate-500 uppercase tracking-widest mb-1">Aproveitamento</div>
-                <div className="text-4xl font-mono font-bold text-white tracking-tighter flex items-center justify-center md:justify-end gap-2">
-                  {accuracyStats.percentage}% <TrendingUp size={24} className={accuracyStats.percentage > 50 ? 'text-emerald-500' : 'text-red-500'}/>
-                </div>
-              </div>
-          </div>
-        </div>
-      )}
-
-      {/* Results Section */}
       {results.length > 0 && (
         <div className="space-y-8">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {results.map((res, idx) => {
                const matchInput = matches.find(m => m.id === res.id);
                let cardBgClass = "bg-slate-900 border-slate-800";
-               let hasResult = matchInput && typeof matchInput.actualHomeScore === 'number';
+               let hasResult = matchInput && hasValidScore(matchInput.actualHomeScore) && hasValidScore(matchInput.actualAwayScore);
                
                if (hasResult) {
-                  const actualHome = matchInput!.actualHomeScore!;
-                  const actualAway = matchInput!.actualAwayScore!;
+                  const actualHome = Number(matchInput!.actualHomeScore!);
+                  const actualAway = Number(matchInput!.actualAwayScore!);
                   const isHit = checkPrediction(res, actualHome, actualAway);
                   if (isHit) {
                     cardBgClass = "bg-emerald-950/80 border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.15)]";
@@ -414,15 +608,16 @@ const BatchMode: React.FC = () => {
                }
 
                return (
-                  <div key={res.id || idx} className={`${cardBgClass} rounded-xl p-0 border shadow-lg overflow-hidden flex flex-col hover:border-opacity-100 transition-all duration-300 group relative`}>
+                  <div key={`result-${res.id}-${idx}`} className={`${cardBgClass} rounded-xl p-0 border shadow-lg overflow-hidden flex flex-col hover:border-opacity-100 transition-all duration-300 group relative transform hover:scale-[1.02] hover:shadow-2xl hover:z-10`}>
                     
-                    {/* Card Header */}
                     <div className="bg-black/30 px-4 py-2 flex justify-between items-center border-b border-white/10">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Jogo {res.id}</span>
-                      <div className="flex gap-1">
-                        <div className="w-2 h-2 rounded-full bg-white/10"></div>
-                        <div className="w-2 h-2 rounded-full bg-white/10"></div>
-                      </div>
+                      {res.weatherText && (
+                         <div className="flex items-center gap-1 text-[10px] text-slate-400 font-mono">
+                           {getWeatherIconMini(res.weatherText)}
+                           <span>{res.weatherText}</span>
+                         </div>
+                      )}
                     </div>
 
                     <div className="p-5 flex-1 flex flex-col justify-center">
@@ -438,18 +633,22 @@ const BatchMode: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Prob Bar */}
                         <div className="h-2 w-full flex rounded-full overflow-hidden bg-slate-800 mb-4 border border-white/5">
                           <div style={{ width: `${res.homeWinProb}%` }} className="bg-blue-600" />
                           <div style={{ width: `${res.drawProb}%` }} className="bg-slate-500" />
                           <div style={{ width: `${res.awayWinProb}%` }} className="bg-red-600" />
                         </div>
 
+                        {res.statsSummary && (
+                           <div className="mb-3 px-2 py-1 bg-black/40 rounded border border-white/5 text-[10px] text-emerald-400 font-mono text-center flex items-center justify-center gap-1">
+                              <TrendingUp size={10} /> {res.statsSummary}
+                           </div>
+                        )}
+
                         <p className="text-xs text-slate-300 leading-relaxed italic border-t border-white/10 pt-3 opacity-90">
                           "{res.summary}"
                         </p>
 
-                        {/* Betting Suggestion Tip */}
                         <div className="mt-3 bg-black/20 p-2 rounded border border-dashed border-white/10 flex flex-col items-center justify-center text-center relative overflow-hidden">
                           <div className="absolute top-0 right-0 p-1 opacity-10"><Ticket size={24}/></div>
                           <span className="text-[10px] text-indigo-200 uppercase tracking-widest font-bold mb-1 flex items-center gap-1">
@@ -460,7 +659,6 @@ const BatchMode: React.FC = () => {
                           </span>
                         </div>
 
-                        {/* Comparison with Real Result */}
                         {getResultBadge(res)}
                     </div>
                   </div>
@@ -468,28 +666,168 @@ const BatchMode: React.FC = () => {
             })}
           </div>
 
-          {/* Bottom Summary Footer */}
-          {accuracyStats && (
-            <div className="bg-slate-950/50 rounded-2xl p-8 border border-slate-800 flex flex-col items-center justify-center animate-fade-in-up">
-               <h4 className="text-slate-400 text-sm font-bold uppercase tracking-widest mb-4">Resumo da Performance</h4>
-               <div className="flex items-center gap-8">
-                  <div className="text-center">
-                     <div className="text-3xl font-black text-emerald-500">{accuracyStats.hits}</div>
-                     <div className="text-[10px] text-slate-500 uppercase font-bold">Acertos</div>
-                  </div>
-                   <div className="h-12 w-[1px] bg-slate-800"></div>
-                   <div className="text-center">
-                     <div className="text-5xl font-black text-white">{accuracyStats.percentage}%</div>
-                     <div className="text-xs text-slate-400 uppercase font-bold tracking-wider">Precisão Global</div>
-                  </div>
-                  <div className="h-12 w-[1px] bg-slate-800"></div>
-                  <div className="text-center">
-                     <div className="text-3xl font-black text-red-500">{accuracyStats.misses}</div>
-                     <div className="text-[10px] text-slate-500 uppercase font-bold">Erros</div>
-                  </div>
-               </div>
-            </div>
-          )}
+          <div ref={ticketRef} className="mt-12 bg-white rounded-lg overflow-hidden shadow-2xl animate-fade-in-up max-w-4xl mx-auto border-t-8 border-yellow-500">
+             <div className="bg-slate-100 p-4 border-b border-slate-200 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                   <div className="bg-slate-800 text-yellow-500 p-2 rounded-lg"><Grid3X3 size={20}/></div>
+                   <div>
+                      <h4 className="text-slate-800 font-black uppercase tracking-tight text-lg">Volante Virtual Otimizado</h4>
+                      <p className="text-slate-500 text-xs font-bold">Resumo visual da sugestão da IA</p>
+                   </div>
+                </div>
+                <div className="flex items-center gap-2">
+                   <button 
+                     onClick={handleDownloadPDF}
+                     disabled={isGeneratingPdf}
+                     className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-3 py-2 rounded-md transition-colors flex items-center gap-2"
+                   >
+                     {isGeneratingPdf ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
+                     Baixar PDF
+                   </button>
+                </div>
+             </div>
+             
+             <div className="overflow-x-auto">
+               <table className="w-full text-sm">
+                 <thead>
+                   <tr className="bg-slate-5 text-slate-500 text-[10px] uppercase font-bold tracking-wider text-center">
+                     <th className="py-2 w-12 border-b border-r border-slate-200">#</th>
+                     <th className="py-2 text-left px-4 border-b border-slate-200">Mandante</th>
+                     <th className="py-2 w-16 border-b border-l border-slate-200 bg-blue-50/50 text-blue-800">COL 1</th>
+                     <th className="py-2 w-16 border-b border-l border-slate-200 bg-slate-100 text-slate-800">COL Meio</th>
+                     <th className="py-2 w-16 border-b border-l border-r border-slate-200 bg-red-50/50 text-red-800">COL 2</th>
+                     <th className="py-2 text-right px-4 border-b border-slate-200">Visitante</th>
+                     {/* COLUNAS DE AUDITORIA VISUAL */}
+                     <th className="py-2 w-24 border-b border-l border-slate-200 bg-slate-100 text-slate-700">Placar Real</th>
+                     <th className="py-2 w-12 border-b border-l border-slate-200 text-slate-700">Status</th>
+                   </tr>
+                 </thead>
+                 <tbody>
+                   {matches.map((matchInput, index) => {
+                     const res = results.find(r => r.id === matchInput.id);
+                     if (!res) return null; // Defensive check
+
+                     const tip = res.bettingTipCode ? res.bettingTipCode.toUpperCase() : '';
+                     
+                     const is1 = tip.includes('1') || tip === 'ALL';
+                     const isX = tip.includes('X') || tip === 'ALL';
+                     const is2 = tip.includes('2') || tip === 'ALL';
+
+                     const op1 = Math.max(0.2, res.homeWinProb / 100);
+                     const opX = Math.max(0.2, res.drawProb / 100);
+                     const op2 = Math.max(0.2, res.awayWinProb / 100);
+
+                     // Dados do Placar Real para Comparativo
+                     const hasResult = hasValidScore(matchInput.actualHomeScore) && hasValidScore(matchInput.actualAwayScore);
+                     let statusIcon = <div className="text-slate-300">-</div>;
+                     let scoreText = "--";
+
+                     if (hasResult) {
+                        const h = Number(matchInput.actualHomeScore);
+                        const a = Number(matchInput.actualAwayScore);
+                        scoreText = `${h} x ${a}`;
+                        
+                        const isHit = checkPrediction(res, h, a);
+                        statusIcon = isHit 
+                           ? <Check size={18} className="text-emerald-500 mx-auto" strokeWidth={3} />
+                           : <X size={18} className="text-red-500 mx-auto" strokeWidth={3} />;
+                     }
+
+                     return (
+                       <tr key={matchInput.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                         <td className="text-center font-mono text-slate-400 font-bold border-r border-slate-100 py-3">{index + 1}</td>
+                         <td className="px-4 font-bold text-slate-800">{res.homeTeam}</td>
+                         
+                         <td className="border-l border-slate-100 p-1">
+                           <div className="w-full h-8 flex items-center justify-center rounded border border-slate-200 bg-slate-50 relative overflow-hidden">
+                             {is1 && (
+                               <div 
+                                  className="absolute inset-0 bg-blue-600 flex items-center justify-center text-white"
+                                  style={{ opacity: op1 }}
+                               >
+                               </div>
+                             )}
+                             {is1 && <span className="relative z-10 text-white font-black drop-shadow-md">X</span>}
+                           </div>
+                         </td>
+
+                         <td className="border-l border-slate-100 p-1">
+                           <div className="w-full h-8 flex items-center justify-center rounded border border-slate-200 bg-slate-50 relative overflow-hidden">
+                             {isX && (
+                               <div 
+                                  className="absolute inset-0 bg-slate-500 flex items-center justify-center text-white"
+                                  style={{ opacity: opX }}
+                               >
+                               </div>
+                             )}
+                             {isX && <span className="relative z-10 text-white font-black drop-shadow-md">X</span>}
+                           </div>
+                         </td>
+
+                         <td className="border-l border-r border-slate-100 p-1">
+                           <div className="w-full h-8 flex items-center justify-center rounded border border-slate-200 bg-slate-50 relative overflow-hidden">
+                             {is2 && (
+                               <div 
+                                  className="absolute inset-0 bg-red-600 flex items-center justify-center text-white"
+                                  style={{ opacity: op2 }}
+                               >
+                               </div>
+                             )}
+                             {is2 && <span className="relative z-10 text-white font-black drop-shadow-md">X</span>}
+                           </div>
+                         </td>
+
+                         <td className="px-4 text-right font-bold text-slate-800">{res.awayTeam}</td>
+
+                         {/* COLUNAS DE AUDITORIA VISUAL */}
+                         <td className="border-l border-slate-200 bg-slate-50 text-center font-mono font-bold text-slate-700">
+                           {scoreText}
+                         </td>
+                         <td className="border-l border-slate-200 text-center">
+                           {statusIcon}
+                         </td>
+                       </tr>
+                     );
+                   })}
+                 </tbody>
+               </table>
+             </div>
+             
+             {betCost && (
+                <div className={`bg-emerald-50 border-t border-emerald-100 p-4 flex flex-col md:flex-row justify-between items-center gap-4 ${betCost.isBelowMinimum ? 'bg-amber-50 border-amber-100' : ''}`}>
+                    <div className="flex items-center gap-4 text-emerald-900">
+                        <div className={`p-2 rounded-lg ${betCost.isBelowMinimum ? 'bg-amber-200 text-amber-800' : 'bg-emerald-200 text-emerald-800'}`}><Calculator size={20}/></div>
+                        <div className="flex flex-col text-xs font-bold uppercase tracking-wider gap-1">
+                           <div>Duplos: <span className="text-emerald-700 bg-white/50 px-1.5 py-0.5 rounded border border-emerald-200">{betCost.doubles}</span></div>
+                           <div>Triplos: <span className="text-emerald-700 bg-white/50 px-1.5 py-0.5 rounded border border-emerald-200">{betCost.triples}</span></div>
+                        </div>
+                    </div>
+                    
+                    {betCost.isBelowMinimum && (
+                       <div className="flex items-center gap-2 bg-amber-100 text-amber-800 px-3 py-1.5 rounded-lg border border-amber-200 text-xs font-bold">
+                          <AlertTriangle size={14} />
+                          Aposta mínima oficial: 1 Duplo (R$ 3,00)
+                       </div>
+                    )}
+
+                    <div className="flex flex-col items-end">
+                       <div className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest mb-1 flex items-center gap-1">
+                          <Banknote size={14} /> Custo Estimado
+                       </div>
+                       <div className="text-3xl font-black text-emerald-800 font-mono tracking-tighter">
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(betCost.total)}
+                       </div>
+                       <div className="text-[9px] text-emerald-500 font-bold uppercase">
+                          {betCost.combinations} aposta(s) x R$ 1,50
+                       </div>
+                    </div>
+                </div>
+             )}
+
+             <div className="bg-slate-50 p-3 text-[10px] text-slate-400 text-center font-mono uppercase border-t border-slate-200">
+                Simulação gerada por Inteligência Artificial • {new Date().toLocaleDateString()}
+             </div>
+          </div>
         </div>
       )}
     </div>

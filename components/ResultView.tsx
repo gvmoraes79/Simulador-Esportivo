@@ -3,7 +3,7 @@ import React from 'react';
 import { SimulationResult } from '../types';
 import { ComparisonRadar, ProbabilityPie, ScoreProbabilitiesChart } from './StatsCharts';
 import LineupView from './LineupView';
-import { ExternalLink, ShieldAlert, User, History, Target, BarChart, RotateCcw, Lightbulb, Check, AlertCircle } from 'lucide-react';
+import { ExternalLink, ShieldAlert, User, History, Target, BarChart, RotateCcw, Lightbulb, Check, AlertCircle, CloudRain, Sun, Cloud, CloudLightning, MapPin, TrendingUp, ArrowUp, Layers } from 'lucide-react';
 
 interface ResultViewProps {
   result: SimulationResult;
@@ -12,10 +12,7 @@ interface ResultViewProps {
 
 const ResultView: React.FC<ResultViewProps> = ({ result, onReset }) => {
   
-  // Logic to determine if simulation was correct (if actual score exists)
-  // Uses bettingTipCode for strict validation
   const getValidationResult = () => {
-    // result.actualScore is guaranteed to be safe by sanitizer or undefined
     if (!result.actualScore) return { hasResult: false, isCorrect: false };
 
     const actualH = result.actualScore.home;
@@ -69,7 +66,14 @@ const ResultView: React.FC<ResultViewProps> = ({ result, onReset }) => {
     );
   };
 
-  // Determine border/glow color for the main scoreboard
+  const getWeatherIcon = (condition: string) => {
+    const c = condition.toLowerCase();
+    if (c.includes('chuva') || c.includes('rain')) return <CloudRain className="text-blue-400" />;
+    if (c.includes('sol') || c.includes('limpo') || c.includes('clear')) return <Sun className="text-yellow-400" />;
+    if (c.includes('tempestade') || c.includes('storm')) return <CloudLightning className="text-purple-400" />;
+    return <Cloud className="text-slate-400" />;
+  };
+
   const scoreboardBorderClass = hasResult 
     ? (isCorrect ? 'border-emerald-600/50 shadow-[0_0_40px_rgba(16,185,129,0.15)]' : 'border-amber-600/50 shadow-[0_0_40px_rgba(245,158,11,0.15)]') 
     : 'border-slate-800 shadow-2xl';
@@ -81,11 +85,9 @@ const ResultView: React.FC<ResultViewProps> = ({ result, onReset }) => {
 
       {/* Jumbotron / Scoreboard */}
       <div className={`relative bg-black rounded-3xl p-1 overflow-hidden transition-all duration-500 border-4 ${scoreboardBorderClass}`}>
-        {/* Glossy Overlay */}
         <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-slate-800/20 to-transparent pointer-events-none"></div>
         
         <div className={`bg-gradient-to-b ${hasResult ? (isCorrect ? 'from-emerald-950/30 to-slate-950' : 'from-amber-950/30 to-slate-950') : 'from-slate-900 to-slate-950'} rounded-[20px] p-6 md:p-10 relative transition-colors duration-500`}>
-           {/* Background Mesh */}
            <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:16px_16px]"></div>
 
           <div className="text-center mb-6">
@@ -131,13 +133,97 @@ const ResultView: React.FC<ResultViewProps> = ({ result, onReset }) => {
         </div>
       </div>
 
-      {/* Tactic Board / Lineups */}
+      {/* Match Conditions & Stats Panel */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Weather & Location */}
+          <div className="bg-slate-900/80 rounded-2xl p-6 border border-slate-800 backdrop-blur-sm shadow-xl flex flex-col justify-between">
+             <div className="flex items-start justify-between">
+                <div>
+                   <h3 className="text-slate-400 font-bold text-xs uppercase tracking-wider mb-1 flex items-center gap-2">
+                     <MapPin size={14} className="text-slate-500"/> Local do Jogo
+                   </h3>
+                   <div className="text-white font-bold text-lg">{result.weather?.location || "Estádio"}</div>
+                   
+                   {/* PITCH TYPE INDICATOR */}
+                   <div className="flex items-center gap-2 mt-2">
+                      <div className="bg-slate-800 p-1 rounded text-slate-400"><Layers size={14} /></div>
+                      <span className="text-xs font-mono text-slate-300">
+                        {result.weather?.pitchType ? result.weather.pitchType : "Gramado: Não ident."}
+                      </span>
+                   </div>
+                </div>
+                <div className="bg-slate-800 p-2 rounded-lg">
+                   {getWeatherIcon(result.weather?.condition || "")}
+                </div>
+             </div>
+             
+             <div className="mt-6 flex items-center gap-4">
+                <div className="text-4xl font-light text-white">{result.weather?.temp || "--"}</div>
+                <div className="flex flex-col">
+                   <div className="text-slate-200 font-medium capitalize">{result.weather?.condition}</div>
+                   <div className="text-slate-500 text-xs font-mono">{result.weather?.probability}</div>
+                </div>
+             </div>
+          </div>
+
+          {/* Stats Summary & Aerial Duel */}
+          <div className="bg-slate-900/80 rounded-2xl p-6 border border-slate-800 backdrop-blur-sm shadow-xl flex flex-col gap-4">
+             <div>
+                <h3 className="text-slate-400 font-bold text-xs uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <TrendingUp size={14} className="text-slate-500"/> Estatísticas de Aproveitamento
+                </h3>
+                <div className="space-y-4">
+                    <div>
+                        <div className="text-blue-400 text-xs font-bold uppercase mb-1">{result.homeTeam.name}</div>
+                        <div className="text-slate-200 text-sm italic border-l-2 border-blue-500 pl-3">
+                            "{result.homeTeam.statsText}"
+                        </div>
+                    </div>
+                    <div>
+                        <div className="text-red-400 text-xs font-bold uppercase mb-1">{result.awayTeam.name}</div>
+                        <div className="text-slate-200 text-sm italic border-l-2 border-red-500 pl-3">
+                            "{result.awayTeam.statsText}"
+                        </div>
+                    </div>
+                </div>
+             </div>
+             
+             {/* Aerial Duel Analysis */}
+             {result.homeTeam.aerialAttackRating && (
+                <div className="border-t border-slate-800 pt-4 mt-2">
+                    <h3 className="text-slate-400 font-bold text-xs uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <ArrowUp size={14} className="text-slate-500"/> Duelo Aéreo (Escalações)
+                    </h3>
+                    <div className="space-y-3">
+                       {/* Comparativo 1: Ataque Casa vs Defesa Fora */}
+                       <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
+                          <span className="text-blue-400">ATQ {result.homeTeam.name}</span> vs <span className="text-red-400">DEF {result.awayTeam.name}</span>
+                       </div>
+                       <div className="h-2 flex rounded-full overflow-hidden bg-slate-800">
+                           <div style={{ width: `${result.homeTeam.aerialAttackRating}%` }} className="bg-blue-600" title="Ataque Aéreo Mandante"></div>
+                           <div className="flex-1 bg-slate-800 border-l border-r border-slate-700"></div>
+                           <div style={{ width: `${result.awayTeam.aerialDefenseRating}%` }} className="bg-red-800" title="Defesa Aérea Visitante"></div>
+                       </div>
+                       
+                       {/* Comparativo 2: Defesa Casa vs Ataque Fora */}
+                       <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono mt-1">
+                          <span className="text-blue-400">DEF {result.homeTeam.name}</span> vs <span className="text-red-400">ATQ {result.awayTeam.name}</span>
+                       </div>
+                       <div className="h-2 flex rounded-full overflow-hidden bg-slate-800">
+                           <div style={{ width: `${result.homeTeam.aerialDefenseRating}%` }} className="bg-blue-800" title="Defesa Aérea Mandante"></div>
+                           <div className="flex-1 bg-slate-800 border-l border-r border-slate-700"></div>
+                           <div style={{ width: `${result.awayTeam.aerialAttackRating}%` }} className="bg-red-600" title="Ataque Aéreo Visitante"></div>
+                       </div>
+                    </div>
+                </div>
+             )}
+          </div>
+      </div>
+
       <LineupView lineups={result.lineups} homeTeamName={result.homeTeam?.name} awayTeamName={result.awayTeam?.name} />
 
       {/* Analysis Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        
-        {/* Win Probability */}
         <div className="bg-slate-900/80 rounded-2xl p-6 border border-slate-800 backdrop-blur-sm flex flex-col">
           <h3 className="text-white font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">
             <div className="bg-yellow-500/20 p-1.5 rounded text-yellow-500"><BarChart size={16} /></div>
@@ -155,7 +241,6 @@ const ResultView: React.FC<ResultViewProps> = ({ result, onReset }) => {
             </div>
           </div>
           
-          {/* Betting Tip - Added Feature */}
           <div className="mt-4 bg-indigo-950/40 border border-indigo-500/20 rounded-xl p-3 flex items-center gap-3 relative overflow-hidden group hover:border-indigo-500/40 transition-colors">
             <div className="bg-indigo-500/20 p-2 rounded-lg text-indigo-400">
                <Lightbulb size={20} />
@@ -170,7 +255,6 @@ const ResultView: React.FC<ResultViewProps> = ({ result, onReset }) => {
           </div>
         </div>
 
-        {/* Exact Score */}
         <div className="bg-slate-900/80 rounded-2xl p-6 border border-slate-800 backdrop-blur-sm">
           <h3 className="text-white font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">
             <div className="bg-emerald-500/20 p-1.5 rounded text-emerald-500"><Target size={16} /></div>
@@ -180,7 +264,6 @@ const ResultView: React.FC<ResultViewProps> = ({ result, onReset }) => {
         </div>
       </div>
 
-      {/* Deep Analysis & Radar */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 bg-slate-900/80 rounded-2xl p-6 border border-slate-800">
           <h3 className="text-white font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">
@@ -205,7 +288,6 @@ const ResultView: React.FC<ResultViewProps> = ({ result, onReset }) => {
         </div>
       </div>
 
-      {/* Player Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-slate-900/50 rounded-2xl p-6 border border-slate-800">
           <h4 className="text-blue-400 font-bold mb-4 flex items-center gap-2 uppercase text-sm tracking-wider">
@@ -252,7 +334,6 @@ const ResultView: React.FC<ResultViewProps> = ({ result, onReset }) => {
         </div>
       </div>
 
-      {/* Footer / Reset */}
       <div className="pt-8 border-t border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4">
         <div className="flex flex-wrap gap-2 text-xs">
            {result.sources?.length > 0 && result.sources.map((source, idx) => (
