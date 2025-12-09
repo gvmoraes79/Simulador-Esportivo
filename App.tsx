@@ -34,7 +34,7 @@ const App: React.FC = () => {
     riskLevel: RiskLevel.MODERATE,
   });
 
-  // Check Session on Mount
+  // Check Session on Mount & Force API Key Prompt
   useEffect(() => {
     const sessionUser = authService.checkSession();
     if (sessionUser) {
@@ -44,7 +44,16 @@ const App: React.FC = () => {
     
     // Load existing key
     const storedKey = localStorage.getItem('sportsim_api_key');
-    if (storedKey) setApiKey(storedKey);
+    const envKey = (import.meta as any).env?.VITE_API_KEY;
+
+    if (storedKey) {
+        setApiKey(storedKey);
+    } else if (envKey) {
+        setApiKey(envKey);
+    } else {
+        // Se não tem chave nenhuma (nem local, nem env), FORÇA abrir o modal
+        setShowSettings(true);
+    }
   }, []);
 
   const handleLogout = () => {
@@ -58,14 +67,19 @@ const App: React.FC = () => {
     const user = authService.checkSession();
     if (user) setCurrentUser(user);
     setIsAuthenticated(true);
+    
+    // Check key again on login
+    const storedKey = localStorage.getItem('sportsim_api_key');
+    if (!storedKey && !(import.meta as any).env?.VITE_API_KEY) {
+        setShowSettings(true);
+    }
   };
   
   const saveSettings = () => {
      if (apiKey.trim()) {
         localStorage.setItem('sportsim_api_key', apiKey.trim());
         setShowSettings(false);
-        // Force reload to apply key might be good, but simple state update is enough for next call
-        alert("Chave API salva com sucesso!");
+        alert("Chave API salva e pronta para uso!");
      }
   };
 
@@ -164,7 +178,7 @@ const App: React.FC = () => {
              
              <button 
                onClick={() => setShowSettings(true)}
-               className="bg-slate-800 hover:bg-slate-700 p-2 rounded-lg transition-colors border border-slate-700 text-slate-300 hover:text-white"
+               className={`bg-slate-800 hover:bg-slate-700 p-2 rounded-lg transition-colors border border-slate-700 text-slate-300 hover:text-white ${!apiKey ? 'animate-pulse ring-2 ring-red-500' : ''}`}
                title="Configurações (API Key)"
              >
                 <Settings size={18} />
@@ -195,10 +209,14 @@ const App: React.FC = () => {
                     <div className="bg-slate-800 p-3 rounded-xl">
                        <Settings className="text-emerald-400" size={24} />
                     </div>
-                    <h2 className="text-xl font-bold text-white">Configurações</h2>
+                    <h2 className="text-xl font-bold text-white">Configuração Obrigatória</h2>
                  </div>
                  
                  <div className="space-y-4">
+                    <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-lg text-amber-200 text-xs mb-4">
+                       <strong>Atenção:</strong> Para usar o simulador, você precisa inserir sua chave da API do Google Gemini.
+                    </div>
+
                     <div>
                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Google Gemini API Key</label>
                        <div className="relative">
@@ -212,7 +230,10 @@ const App: React.FC = () => {
                           />
                        </div>
                        <p className="text-[10px] text-slate-500 mt-2">
-                          Sua chave é salva apenas no seu navegador. Necessária para realizar as simulações.
+                          Sua chave é salva apenas no seu navegador. 
+                          <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline ml-1">
+                             Obter chave grátis aqui.
+                          </a>
                        </p>
                     </div>
                     
@@ -220,7 +241,7 @@ const App: React.FC = () => {
                       onClick={saveSettings}
                       className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg"
                     >
-                       <Save size={18} /> Salvar Configurações
+                       <Save size={18} /> Salvar e Continuar
                     </button>
                  </div>
               </div>
