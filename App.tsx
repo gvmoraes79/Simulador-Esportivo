@@ -7,7 +7,7 @@ import BatchMode from './components/BatchMode';
 import HistoryMode from './components/HistoryMode'; 
 import VarMode from './components/VarMode'; // Import
 import RiskSelector from './components/RiskSelector';
-import { runSimulation } from './services/geminiService';
+import { runSimulation, getApiKey } from './services/geminiService'; // Import getApiKey
 import { authService } from './services/authService'; // Import Auth
 import { Loader2, Calendar, Search, Layers, Activity, Trophy, MessageSquare, History, MonitorPlay, LogOut, User, Settings, Key, X, Save } from 'lucide-react';
 import LoginScreen from './components/LoginScreen';
@@ -36,23 +36,30 @@ const App: React.FC = () => {
 
   // Check Session on Mount & Force API Key Prompt
   useEffect(() => {
+    // 1. Session Check
     const sessionUser = authService.checkSession();
     if (sessionUser) {
       setCurrentUser(sessionUser);
       setIsAuthenticated(true);
     }
     
-    // Load existing key
-    const storedKey = localStorage.getItem('sportsim_api_key');
-    const envKey = (import.meta as any).env?.VITE_API_KEY;
-
-    if (storedKey) {
-        setApiKey(storedKey);
-    } else if (envKey) {
-        setApiKey(envKey);
+    // 2. Key Detection
+    const key = getApiKey();
+    if (key) {
+        setApiKey(key);
     } else {
-        // Se não tem chave nenhuma (nem local, nem env), FORÇA abrir o modal
+        // Se não encontrar chave, força abertura do settings
         setShowSettings(true);
+    }
+
+    // 3. URL Magic Link Check (se existir)
+    const params = new URLSearchParams(window.location.search);
+    const magicKey = params.get('key');
+    if (magicKey) {
+        localStorage.setItem('sportsim_api_key', magicKey);
+        setApiKey(magicKey);
+        window.history.replaceState({}, document.title, "/");
+        setShowSettings(false);
     }
   }, []);
 
@@ -68,9 +75,7 @@ const App: React.FC = () => {
     if (user) setCurrentUser(user);
     setIsAuthenticated(true);
     
-    // Check key again on login
-    const storedKey = localStorage.getItem('sportsim_api_key');
-    if (!storedKey && !(import.meta as any).env?.VITE_API_KEY) {
+    if (!getApiKey()) {
         setShowSettings(true);
     }
   };
