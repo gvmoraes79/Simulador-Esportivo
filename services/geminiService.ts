@@ -7,16 +7,20 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Obtém a API Key de forma segura e flexível
 const getApiKey = (): string => {
-  // 1. Tenta recuperar do LocalStorage (Inserida pelo usuário na UI)
-  const storedKey = typeof localStorage !== 'undefined' ? localStorage.getItem('sportsim_api_key') : null;
-  if (storedKey) return storedKey;
+  // 1. Tenta recuperar do LocalStorage (Inserida pelo usuário na UI) - PRIORIDADE MÁXIMA
+  if (typeof localStorage !== 'undefined') {
+      const storedKey = localStorage.getItem('sportsim_api_key');
+      if (storedKey && storedKey.trim().length > 5) return storedKey.trim();
+  }
 
-  // 2. Tenta formato Vite (Padrão para desenvolvimento local .env)
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.VITE_API_KEY) {
-    return (import.meta as any).env.VITE_API_KEY;
+  // 2. Tenta formato Vite (Padrão para desenvolvimento local .env ou Vercel Environment Variables)
+  // Casting para evitar erros de TS
+  const viteEnv = (import.meta as any).env;
+  if (viteEnv && viteEnv.VITE_API_KEY) {
+    return viteEnv.VITE_API_KEY;
   }
   
-  // 3. Tenta formato Node/Process (Legado ou Vercel backend)
+  // 3. Tenta formato Node/Process (Legado)
   if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
     return process.env.API_KEY;
   }
@@ -33,6 +37,7 @@ async function scheduleRequest<T>(operation: () => Promise<T>): Promise<T> {
   const nextRequest = requestQueue.then(async () => {
     try {
       // Delay global para "resfriar" a API (Paciência Extrema)
+      // Reduzido levemente pois o modo Fallback lida com erros, melhorando UX
       await delay(1500); 
       return await operation();
     } catch (err) {
@@ -192,7 +197,7 @@ const sanitizeSimulationResult = (data: any, input: MatchInput): any => {
 
 export const runSimulation = async (input: MatchInput): Promise<SimulationResult> => {
   const currentKey = getApiKey();
-  if (!currentKey) throw new Error("API Key não encontrada. Insira sua chave na tela de Login ou configure o arquivo .env.");
+  if (!currentKey) throw new Error("API Key não configurada. Insira sua chave na tela de Login.");
 
   const ai = new GoogleGenAI({ apiKey: currentKey });
   const prompt = `
@@ -219,13 +224,13 @@ export const runSimulation = async (input: MatchInput): Promise<SimulationResult
     return { ...sanitizeSimulationResult(parsedData, input), sources, matchDate: input.date };
     
   } catch (error: any) {
-    console.warn("Falha no Search Grounding. Tentando Fallback Offline...", error);
+    console.warn("Falha no Search Grounding ou Cota. Tentando Fallback Offline...", error);
     
     try {
         const fallbackResponse = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt + "\n\nIMPORTANTE: Atue apenas com seu conhecimento estatístico prévio. NÃO use ferramentas de busca.",
-        }), 3, 2000);
+        }), 2, 2000);
 
         const parsedData = parseGeminiResponse(fallbackResponse.text || "");
         parsedData.marketConsensus = "Modo Offline (Estimativa Pura)";
