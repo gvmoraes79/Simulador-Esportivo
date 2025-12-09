@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Lock, Unlock, ShieldCheck, UserPlus, LogIn, Key } from 'lucide-react';
+import { Lock, Unlock, ShieldCheck, UserPlus, LogIn, Key, AlertTriangle } from 'lucide-react';
 import { authService } from '../services/authService';
 
 interface LoginScreenProps {
@@ -13,13 +13,23 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [hasKeyConfigured, setHasKeyConfigured] = useState(false);
+  const [showKeyInput, setShowKeyInput] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Carrega chave existente se houver
+  // Verifica se já existe chave ao carregar
   useEffect(() => {
      const storedKey = localStorage.getItem('sportsim_api_key');
-     if (storedKey) setApiKey(storedKey);
+     const envKey = (import.meta as any).env?.VITE_API_KEY;
+     
+     if (storedKey || envKey) {
+        setHasKeyConfigured(true);
+        if (storedKey) setApiKey(storedKey);
+     } else {
+        setHasKeyConfigured(false);
+        setShowKeyInput(true); // Força mostrar o input se não tiver chave
+     }
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -28,17 +38,26 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     setSuccessMsg('');
 
     if (!username || !password) {
-      setError('Preencha todos os campos.');
+      setError('Preencha usuário e senha.');
       return;
     }
 
-    // Salva a API Key no navegador se o usuário informou (qualquer formato não vazio)
+    // Validação da API Key
+    const envKey = (import.meta as any).env?.VITE_API_KEY;
+    const finalKey = apiKey.trim() || localStorage.getItem('sportsim_api_key') || envKey;
+
+    if (!finalKey) {
+       setError('A API Key é obrigatória para o primeiro acesso.');
+       setShowKeyInput(true);
+       return;
+    }
+
+    // Salva a chave se foi digitada
     if (apiKey.trim()) {
         localStorage.setItem('sportsim_api_key', apiKey.trim());
     }
 
     if (isRegistering) {
-      // Lógica de Registro
       if (password !== confirmPassword) {
         setError('As senhas não coincidem.');
         return;
@@ -53,7 +72,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       }
 
     } else {
-      // Lógica de Login
       const result = authService.login(username, password);
       if (result.success) {
         onLogin();
@@ -74,10 +92,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
-       {/* Background Effects */}
        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_0%,#1e293b,transparent_70%)]"></div>
        <div className="absolute -bottom-32 -left-32 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl"></div>
-       <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-3xl"></div>
 
       <div className="max-w-md w-full bg-slate-900/80 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border border-slate-800 relative z-10 animate-fade-in-up transition-all duration-500">
         <div className="text-center mb-8">
@@ -92,7 +108,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           </p>
         </div>
 
-        {/* Tabs */}
         <div className="flex bg-slate-950 p-1 rounded-xl mb-6 border border-slate-800">
            <button 
              type="button"
@@ -146,21 +161,42 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
              </div>
           )}
 
-          {/* API Key Input */}
-          <div className="pt-2 border-t border-slate-800 mt-4">
-             <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2 ml-1 flex items-center gap-1">
-               <Key size={12}/> Google Gemini API Key
-             </label>
-             <input
-               type="text"
-               className="w-full bg-slate-950 border border-emerald-900/50 rounded-xl px-4 py-3 text-emerald-200 focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono text-xs placeholder:text-emerald-900/50"
-               placeholder="AIzaSy... (Opcional se já configurado)"
-               value={apiKey}
-               onChange={(e) => setApiKey(e.target.value)}
-             />
-             <p className="text-[9px] text-slate-500 mt-1 ml-1">
-               Cole sua chave aqui para não precisar criar arquivo .env
-             </p>
+          {/* API Key Section - Lógica Inteligente */}
+          <div className="pt-4 mt-4 border-t border-slate-800">
+             {!hasKeyConfigured && !showKeyInput && (
+                <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl flex items-start gap-3 mb-3">
+                   <AlertTriangle className="text-amber-500 shrink-0" size={16} />
+                   <div className="text-[10px] text-amber-200">
+                      <strong>Atenção:</strong> Nenhuma chave de API detectada. Você precisará fornecer uma para usar o sistema.
+                   </div>
+                </div>
+             )}
+             
+             {showKeyInput ? (
+                <div className="animate-fade-in">
+                   <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2 ml-1 flex items-center gap-1">
+                     <Key size={12}/> Google Gemini API Key {hasKeyConfigured ? '(Atualizar)' : '(Obrigatório)'}
+                   </label>
+                   <input
+                     type="text"
+                     className="w-full bg-slate-950 border border-emerald-900/50 rounded-xl px-4 py-3 text-emerald-200 focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono text-xs placeholder:text-emerald-900/50"
+                     placeholder="AIzaSy..."
+                     value={apiKey}
+                     onChange={(e) => setApiKey(e.target.value)}
+                   />
+                   <p className="text-[9px] text-slate-500 mt-1 ml-1">
+                     Insira sua chave uma vez e ela será salva neste dispositivo.
+                   </p>
+                </div>
+             ) : (
+                <button 
+                  type="button" 
+                  onClick={() => setShowKeyInput(true)}
+                  className="text-[10px] text-slate-500 hover:text-emerald-400 underline flex items-center gap-1 mx-auto"
+                >
+                   <Key size={10} /> Tenho uma nova API Key
+                </button>
+             )}
           </div>
 
           {error && (
@@ -193,7 +229,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         
         <div className="mt-8 text-center">
            <p className="text-[10px] text-slate-600 font-mono">
-             Security Gateway v3.1.0 • Local Storage Auth
+             Security Gateway v3.2 • Powered by Gemini
            </p>
         </div>
       </div>
