@@ -5,19 +5,22 @@ import { MatchInput, SimulationResult, TeamMood, BatchMatchInput, BatchResultIte
 // Helper for delay
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Obtém a API Key de forma segura e flexível
-const getApiKey = (): string => {
+// Obtém a API Key de forma segura e flexível (EXPORTADA PARA USO NO APP)
+export const getApiKey = (): string => {
   // 1. Tenta recuperar do LocalStorage (Inserida pelo usuário na UI) - PRIORIDADE MÁXIMA
   if (typeof localStorage !== 'undefined') {
       const storedKey = localStorage.getItem('sportsim_api_key');
-      if (storedKey && storedKey.trim().length > 5) return storedKey.trim();
+      if (storedKey && storedKey.trim().length > 10) return storedKey.trim();
   }
 
   // 2. Tenta formato Vite (Padrão para desenvolvimento local .env ou Vercel Environment Variables)
-  // Casting para evitar erros de TS
-  const viteEnv = (import.meta as any).env;
-  if (viteEnv && viteEnv.VITE_API_KEY) {
-    return viteEnv.VITE_API_KEY;
+  try {
+      const viteEnv = (import.meta as any).env;
+      if (viteEnv && viteEnv.VITE_API_KEY) {
+        return viteEnv.VITE_API_KEY;
+      }
+  } catch (e) {
+      // Ignora erro se import.meta não existir
   }
   
   // 3. Tenta formato Node/Process (Legado)
@@ -27,8 +30,6 @@ const getApiKey = (): string => {
   
   return "";
 };
-
-const API_KEY = getApiKey();
 
 // GLOBAL REQUEST MUTEX
 let requestQueue: Promise<any> = Promise.resolve();
@@ -197,7 +198,7 @@ const sanitizeSimulationResult = (data: any, input: MatchInput): any => {
 
 export const runSimulation = async (input: MatchInput): Promise<SimulationResult> => {
   const currentKey = getApiKey();
-  if (!currentKey) throw new Error("API Key não configurada. Insira sua chave na tela de Login.");
+  if (!currentKey) throw new Error("API Key não configurada. Use o botão de configurações (engrenagem) para inserir.");
 
   const ai = new GoogleGenAI({ apiKey: currentKey });
   const prompt = `
