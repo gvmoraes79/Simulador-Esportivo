@@ -9,7 +9,7 @@ import VarMode from './components/VarMode'; // Import
 import RiskSelector from './components/RiskSelector';
 import { runSimulation } from './services/geminiService';
 import { authService } from './services/authService'; // Import Auth
-import { Loader2, Calendar, Search, Layers, Activity, Trophy, MessageSquare, History, MonitorPlay, LogOut, User } from 'lucide-react';
+import { Loader2, Calendar, Search, Layers, Activity, Trophy, MessageSquare, History, MonitorPlay, LogOut, User, Settings, Key, X, Save } from 'lucide-react';
 import LoginScreen from './components/LoginScreen';
 
 const App: React.FC = () => {
@@ -19,6 +19,10 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  
+  // Settings Modal State
+  const [showSettings, setShowSettings] = useState(false);
+  const [apiKey, setApiKey] = useState('');
 
   const [input, setInput] = useState<MatchInput>({
     homeTeamName: '',
@@ -37,6 +41,10 @@ const App: React.FC = () => {
       setCurrentUser(sessionUser);
       setIsAuthenticated(true);
     }
+    
+    // Load existing key
+    const storedKey = localStorage.getItem('sportsim_api_key');
+    if (storedKey) setApiKey(storedKey);
   }, []);
 
   const handleLogout = () => {
@@ -51,6 +59,15 @@ const App: React.FC = () => {
     if (user) setCurrentUser(user);
     setIsAuthenticated(true);
   };
+  
+  const saveSettings = () => {
+     if (apiKey.trim()) {
+        localStorage.setItem('sportsim_api_key', apiKey.trim());
+        setShowSettings(false);
+        // Force reload to apply key might be good, but simple state update is enough for next call
+        alert("Chave API salva com sucesso!");
+     }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +80,7 @@ const App: React.FC = () => {
       const data = await runSimulation(input);
       setResult(data);
     } catch (err) {
-      setError("Não foi possível realizar a simulação. Verifique sua chave de API ou tente novamente.");
+      setError("Não foi possível realizar a simulação. Verifique sua chave de API nas configurações ou tente novamente.");
     } finally {
       setLoading(false);
     }
@@ -140,10 +157,19 @@ const App: React.FC = () => {
           </div>
 
           {/* User Profile / Logout */}
-          <div className="flex items-center gap-3 ml-2">
+          <div className="flex items-center gap-2 ml-2">
              <div className="hidden md:flex items-center gap-2 text-right">
                 <div className="text-xs font-bold text-white">{currentUser}</div>
              </div>
+             
+             <button 
+               onClick={() => setShowSettings(true)}
+               className="bg-slate-800 hover:bg-slate-700 p-2 rounded-lg transition-colors border border-slate-700 text-slate-300 hover:text-white"
+               title="Configurações (API Key)"
+             >
+                <Settings size={18} />
+             </button>
+
              <button 
                onClick={handleLogout}
                className="bg-slate-800 hover:bg-red-500/20 hover:text-red-400 p-2 rounded-lg transition-colors border border-slate-700"
@@ -155,8 +181,52 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
+      <main className="max-w-6xl mx-auto px-4 py-8 relative">
         
+        {/* Settings Modal */}
+        {showSettings && (
+           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
+              <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl w-full max-w-md p-6 relative">
+                 <button onClick={() => setShowSettings(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white">
+                    <X size={20} />
+                 </button>
+                 
+                 <div className="flex items-center gap-3 mb-6">
+                    <div className="bg-slate-800 p-3 rounded-xl">
+                       <Settings className="text-emerald-400" size={24} />
+                    </div>
+                    <h2 className="text-xl font-bold text-white">Configurações</h2>
+                 </div>
+                 
+                 <div className="space-y-4">
+                    <div>
+                       <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Google Gemini API Key</label>
+                       <div className="relative">
+                          <Key className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+                          <input 
+                            type="text" 
+                            className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-sm"
+                            placeholder="AIzaSy..."
+                            value={apiKey}
+                            onChange={(e) => setApiKey(e.target.value)}
+                          />
+                       </div>
+                       <p className="text-[10px] text-slate-500 mt-2">
+                          Sua chave é salva apenas no seu navegador. Necessária para realizar as simulações.
+                       </p>
+                    </div>
+                    
+                    <button 
+                      onClick={saveSettings}
+                      className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg"
+                    >
+                       <Save size={18} /> Salvar Configurações
+                    </button>
+                 </div>
+              </div>
+           </div>
+        )}
+
         {mode === 'batch' && <BatchMode />}
         
         {mode === 'history' && <HistoryMode />}
