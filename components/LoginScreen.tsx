@@ -1,175 +1,562 @@
 
-import React, { useState } from 'react';
-import { Lock, Unlock, ShieldCheck, UserPlus, LogIn } from 'lucide-react';
-import { authService } from '../services/authService';
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { MatchInput, SimulationResult, TeamMood, BatchMatchInput, BatchResultItem, RiskLevel, LoteriaPrizeInfo, HistoricalDrawStats, VarAnalysisResult, MatchCandidate } from "../types";
 
-interface LoginScreenProps {
-  onLogin: () => void;
-}
+// Helper for delay
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
-  const [isRegistering, setIsRegistering] = useState(false);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [error, setError] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
+// Obtém a API Key de forma segura e flexível
+const getApiKey = (): string => {
+  // 1. Tenta recuperar do LocalStorage (Inserida pelo usuário na UI)
+  const storedKey = typeof localStorage !== 'undefined' ? localStorage.getItem('sportsim_api_key') : null;
+  if (storedKey) return storedKey;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setSuccessMsg('');
-
-    if (!username || !password) {
-      setError('Preencha todos os campos.');
-      return;
-    }
-
-    if (isRegistering) {
-      // Lógica de Registro
-      if (password !== confirmPassword) {
-        setError('As senhas não coincidem.');
-        return;
-      }
-
-      const result = authService.register(username, password);
-      if (result.success) {
-        setSuccessMsg(result.message);
-        setTimeout(() => onLogin(), 1000);
-      } else {
-        setError(result.message);
-      }
-
-    } else {
-      // Lógica de Login
-      const result = authService.login(username, password);
-      if (result.success) {
-        onLogin();
-      } else {
-        setError(result.message);
-      }
-    }
-  };
-
-  const toggleMode = () => {
-    setIsRegistering(!isRegistering);
-    setError('');
-    setSuccessMsg('');
-    setUsername('');
-    setPassword('');
-    setConfirmPassword('');
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
-       {/* Background Effects */}
-       <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_0%,#1e293b,transparent_70%)]"></div>
-       <div className="absolute -bottom-32 -left-32 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl"></div>
-       <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-3xl"></div>
-
-      <div className="max-w-md w-full bg-slate-900/80 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border border-slate-800 relative z-10 animate-fade-in-up transition-all duration-500">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 mb-4 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-            <ShieldCheck className="text-white" size={32} />
-          </div>
-          <h1 className="text-3xl font-black text-white uppercase tracking-tighter italic">
-            SportSim <span className="text-emerald-500">Pro</span>
-          </h1>
-          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-2">
-            {isRegistering ? 'Criar Nova Conta' : 'Acesso Restrito'}
-          </p>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex bg-slate-950 p-1 rounded-xl mb-6 border border-slate-800">
-           <button 
-             type="button"
-             onClick={() => !isRegistering || toggleMode()}
-             className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${!isRegistering ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
-           >
-             Entrar
-           </button>
-           <button 
-             type="button"
-             onClick={() => isRegistering || toggleMode()}
-             className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${isRegistering ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
-           >
-             Cadastrar
-           </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Usuário</label>
-            <input
-              type="text"
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-bold placeholder:text-slate-800"
-              placeholder="Seu nome de usuário"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </div>
-          
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Senha</label>
-            <input
-              type="password"
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-bold placeholder:text-slate-800"
-              placeholder="••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-
-          {isRegistering && (
-             <div className="animate-fade-in">
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Confirmar Senha</label>
-                <input
-                  type="password"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-bold placeholder:text-slate-800"
-                  placeholder="••••••"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                />
-             </div>
-          )}
-
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-bold p-3 rounded-lg text-center animate-pulse flex items-center justify-center gap-2">
-              <Lock size={12} /> {error}
-            </div>
-          )}
-          
-          {successMsg && (
-            <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold p-3 rounded-lg text-center animate-pulse flex items-center justify-center gap-2">
-              <ShieldCheck size={12} /> {successMsg}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            className={`w-full text-white font-black uppercase tracking-widest py-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 group mt-4 ${isRegistering ? 'bg-blue-600 hover:bg-blue-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}
-          >
-            {isRegistering ? (
-                <>
-                  <UserPlus size={18} /> Criar Conta
-                </>
-            ) : (
-                <>
-                  <LogIn size={18} /> Acessar Sistema
-                </>
-            )}
-          </button>
-        </form>
-        
-        <div className="mt-8 text-center">
-           <p className="text-[10px] text-slate-600 font-mono">
-             Security Gateway v3.0.0 • Local Storage Auth
-           </p>
-        </div>
-      </div>
-    </div>
-  );
+  // 2. Tenta formato Vite (Padrão para desenvolvimento local .env)
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.VITE_API_KEY) {
+    return (import.meta as any).env.VITE_API_KEY;
+  }
+  
+  // 3. Tenta formato Node/Process (Legado ou Vercel backend)
+  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+    return process.env.API_KEY;
+  }
+  
+  return "";
 };
 
-export default LoginScreen;
+const API_KEY = getApiKey();
+
+// GLOBAL REQUEST MUTEX
+let requestQueue: Promise<any> = Promise.resolve();
+
+async function scheduleRequest<T>(operation: () => Promise<T>): Promise<T> {
+  const nextRequest = requestQueue.then(async () => {
+    try {
+      // Delay global para "resfriar" a API (Paciência Extrema)
+      await delay(1500); 
+      return await operation();
+    } catch (err) {
+      throw err;
+    } 
+  });
+  
+  requestQueue = nextRequest.catch(() => {});
+  return nextRequest;
+}
+
+// Helper wrapper for API calls with Retry Logic
+async function callWithRetry<T>(
+  apiCall: () => Promise<T>, 
+  retries = 3, 
+  initialDelay = 2000 
+): Promise<T> {
+  
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await scheduleRequest(apiCall);
+    } catch (error: any) {
+      const isRateLimit = error.status === 429 || 
+                          error.status === 503 || 
+                          (error.message && (
+                            error.message.includes('429') || 
+                            error.message.includes('quota') || 
+                            error.message.includes('RESOURCE_EXHAUSTED')
+                          ));
+      
+      if (isRateLimit) {
+        if (i < retries - 1) {
+          // Backoff longo para recuperar cota
+          const waitTime = initialDelay * Math.pow(2, i) + 70000; // +70s de segurança
+          console.warn(`⚠️ Cota da API (429). Esperando ${waitTime/1000}s...`);
+          await delay(waitTime);
+        } else {
+           throw error; 
+        }
+      } else {
+        throw error;
+      }
+    }
+  }
+  throw new Error("Falha na comunicação com a IA.");
+}
+
+const parseGeminiResponse = (text: string): any => {
+  if (!text) throw new Error("Resposta da IA vazia.");
+
+  try {
+    // 1. Limpeza agressiva de Markdown
+    let cleanText = text
+      .replace(/```json/gi, '') // Remove ```json (case insensitive)
+      .replace(/```/g, '')      // Remove ``` restantes
+      .trim();
+
+    // 2. Extração cirúrgica do objeto ou array JSON
+    const firstBrace = cleanText.indexOf('{');
+    const firstBracket = cleanText.indexOf('[');
+    
+    let startIndex = -1;
+    
+    // Descobre se começa com { ou [
+    if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+      startIndex = firstBrace;
+    } else if (firstBracket !== -1) {
+      startIndex = firstBracket;
+    }
+
+    if (startIndex !== -1) {
+      // Encontra o final correspondente
+      const lastBrace = cleanText.lastIndexOf('}');
+      const lastBracket = cleanText.lastIndexOf(']');
+      let endIndex = Math.max(lastBrace, lastBracket);
+      
+      if (endIndex !== -1 && endIndex > startIndex) {
+        cleanText = cleanText.substring(startIndex, endIndex + 1);
+      }
+    }
+
+    return JSON.parse(cleanText);
+  } catch (e) {
+    console.error("JSON Parse Error. Raw text snippet:", text.substring(0, 200));
+    // Tenta uma última vez parsear direto caso a limpeza tenha falhado
+    try {
+        return JSON.parse(text);
+    } catch (finalError) {
+        throw new Error("Falha ao processar dados da IA (Formato inválido).");
+    }
+  }
+};
+
+const sanitizeSimulationResult = (data: any, input: MatchInput): any => {
+  let homeTeamData = data.homeTeam || {};
+  let awayTeamData = data.awayTeam || {};
+  
+  let homeWinProb = typeof homeTeamData.winProbability === 'number' ? homeTeamData.winProbability : 33;
+  let awayWinProb = typeof awayTeamData.winProbability === 'number' ? awayTeamData.winProbability : 33;
+  let drawProb = typeof data.drawProbability === 'number' ? data.drawProbability : 34;
+
+  // Normalização
+  let total = homeWinProb + awayWinProb + drawProb;
+  if (total <= 0) total = 1; 
+  homeWinProb = Math.round((homeWinProb / total) * 100);
+  awayWinProb = Math.round((awayWinProb / total) * 100);
+  drawProb = 100 - homeWinProb - awayWinProb;
+
+  const rawLineups = data.lineups || {};
+  const lineups = {
+    home: Array.isArray(rawLineups.home) ? rawLineups.home : [],
+    away: Array.isArray(rawLineups.away) ? rawLineups.away : []
+  };
+
+  return {
+    homeTeam: {
+      name: input.homeTeamName,
+      winProbability: homeWinProb,
+      mood: input.homeMood,
+      attackRating: homeTeamData.attackRating || 50,
+      defenseRating: homeTeamData.defenseRating || 50,
+      possessionEst: homeTeamData.possessionEst || 50,
+      aerialAttackRating: homeTeamData.aerialAttackRating || 50, 
+      aerialDefenseRating: homeTeamData.aerialDefenseRating || 50,
+      recentForm: Array.isArray(homeTeamData.recentForm) ? homeTeamData.recentForm : [],
+      keyPlayers: Array.isArray(homeTeamData.keyPlayers) ? homeTeamData.keyPlayers : [],
+      statsText: homeTeamData.statsText || "Dados indisponíveis.",
+      restDays: typeof homeTeamData.restDays === 'number' ? homeTeamData.restDays : 7
+    },
+    awayTeam: {
+      name: input.awayTeamName,
+      winProbability: awayWinProb,
+      mood: input.awayMood,
+      attackRating: awayTeamData.attackRating || 50,
+      defenseRating: awayTeamData.defenseRating || 50,
+      possessionEst: awayTeamData.possessionEst || 50,
+      aerialAttackRating: awayTeamData.aerialAttackRating || 50, 
+      aerialDefenseRating: awayTeamData.aerialDefenseRating || 50, 
+      recentForm: Array.isArray(awayTeamData.recentForm) ? awayTeamData.recentForm : [],
+      keyPlayers: Array.isArray(awayTeamData.keyPlayers) ? awayTeamData.keyPlayers : [],
+      statsText: awayTeamData.statsText || "Dados indisponíveis.",
+      restDays: typeof awayTeamData.restDays === 'number' ? awayTeamData.restDays : 7
+    },
+    predictedScore: data.predictedScore || { home: 0, away: 0 },
+    actualScore: data.actualScore,
+    drawProbability: drawProb,
+    exactScores: Array.isArray(data.exactScores) ? data.exactScores : [],
+    lineups: lineups,
+    analysisText: data.analysisText || "Análise indisponível.",
+    bettingTip: data.bettingTip || "Sem sugestão.",
+    bettingTipCode: data.bettingTipCode || "",
+    weather: data.weather || { condition: "Desconhecido", temp: "--", probability: "", location: "Estádio", pitchType: "Desconhecido" },
+    referee: data.referee || { name: "Não informado", style: "Neutro", avgCards: 0 },
+    marketConsensus: data.marketConsensus || ""
+  };
+};
+
+export const runSimulation = async (input: MatchInput): Promise<SimulationResult> => {
+  const currentKey = getApiKey();
+  if (!currentKey) throw new Error("API Key não encontrada. Insira sua chave na tela de Login ou configure o arquivo .env.");
+
+  const ai = new GoogleGenAI({ apiKey: currentKey });
+  const prompt = `
+    Analista esportivo. Jogo: **${input.homeTeamName}** vs **${input.awayTeamName}**.
+    Data: ${input.date}.
+    Obs: "${input.observations || ""}".
+    
+    PESQUISE (Se possível): Lesões, Clima, Arbitragem, Odds.
+    Se não conseguir pesquisar, use estatísticas históricas.
+    Retorne JSON (Single Match Structure).
+  `;
+
+  try {
+    const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: { tools: [{ googleSearch: {} }] },
+    }), 2, 2000); 
+
+    const parsedData = parseGeminiResponse(response.text || "");
+    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
+      ?.filter((c: any) => c.web?.uri).map((c: any) => ({ uri: c.web.uri, title: c.web.title })) || [];
+
+    return { ...sanitizeSimulationResult(parsedData, input), sources, matchDate: input.date };
+    
+  } catch (error: any) {
+    console.warn("Falha no Search Grounding. Tentando Fallback Offline...", error);
+    
+    try {
+        const fallbackResponse = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt + "\n\nIMPORTANTE: Atue apenas com seu conhecimento estatístico prévio. NÃO use ferramentas de busca.",
+        }), 3, 2000);
+
+        const parsedData = parseGeminiResponse(fallbackResponse.text || "");
+        parsedData.marketConsensus = "Modo Offline (Estimativa Pura)";
+        parsedData.weather = { condition: "Estimado", temp: "--", probability: "", location: "Local do Jogo", pitchType: "Não verificado" };
+        
+        return { ...sanitizeSimulationResult(parsedData, input), sources: [], matchDate: input.date };
+    } catch (finalError) {
+        console.error("Simulation error fatal:", finalError);
+        throw finalError;
+    }
+  }
+};
+
+export const runBatchSimulation = async (
+  matches: BatchMatchInput[], 
+  riskLevel: RiskLevel = RiskLevel.MODERATE,
+  observations: string = "",
+  onProgress?: (current: number, total: number, message: string) => void
+): Promise<BatchResultItem[]> => {
+  const currentKey = getApiKey();
+  if (!currentKey) throw new Error("API Key não configurada.");
+
+  const ai = new GoogleGenAI({ apiKey: currentKey });
+  const results: BatchResultItem[] = [];
+  const CHUNK_SIZE = 3; // Batch menor para garantir estabilidade
+
+  for (let i = 0; i < matches.length; i += CHUNK_SIZE) {
+     const chunk = matches.slice(i, i + CHUNK_SIZE);
+     const currentMsg = `Processando bloco ${Math.floor(i/CHUNK_SIZE) + 1} de ${Math.ceil(matches.length/CHUNK_SIZE)}...`;
+     
+     if (onProgress) onProgress(i, matches.length, currentMsg);
+     
+     if (i > 0) await delay(2000);
+
+     const matchesList = chunk.map(m => `- ID ${m.id}: ${m.homeTeam} vs ${m.awayTeam} (${m.date})`).join('\n');
+     
+     const prompt = `
+        Analise estatisticamente (Win Probability & Stats):
+        ${matchesList}
+        Obs: "${observations}"
+        
+        OUTPUT JSON ARRAY: [ { "id": "ID", "homeTeam": "A", "awayTeam": "B", "homeWinProb": n, "drawProb": n, "awayWinProb": n, "summary": "txt", "weatherText": "txt", "statsSummary": "txt" } ]
+      `;
+
+      try {
+        const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: { tools: [{ googleSearch: {} }] },
+        }), 1, 2000);
+
+        const data = parseGeminiResponse(response.text || "");
+        processChunkData(data, results);
+
+      } catch (error) {
+        console.warn(`Erro no bloco com Search. Tentando Fallback Offline...`);
+        try {
+            const fallbackResponse = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt + " ATENÇÃO: Use apenas conhecimento estatístico. Não pesquise na web.",
+            }));
+            const data = parseGeminiResponse(fallbackResponse.text || "");
+            processChunkData(data, results, true);
+        } catch (fallbackError) {
+             console.error(`Error processing chunk fallback:`, fallbackError);
+             chunk.forEach(m => {
+                results.push({
+                    id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam,
+                    homeWinProb: 33, drawProb: 34, awayWinProb: 33,
+                    summary: "Erro na análise (Falha Total).", bettingTip: "Erro", bettingTipCode: "1X2"
+                });
+            });
+        }
+      }
+  }
+
+  return results;
+};
+
+function processChunkData(data: any, resultsArray: BatchResultItem[], isFallback = false) {
+    let chunkResults: any[] = [];
+    if (Array.isArray(data)) {
+        chunkResults = data;
+    } else if (data.matches && Array.isArray(data.matches)) {
+        chunkResults = data.matches;
+    } else {
+         chunkResults = [data];
+    }
+    
+    chunkResults.forEach(item => {
+       const h = Number(item.homeWinProb) || 33;
+       const d = Number(item.drawProb) || 34;
+       const a = Number(item.awayWinProb) || 33;
+
+       resultsArray.push({
+           id: item.id?.toString() || "0",
+           homeTeam: item.homeTeam || "Time A",
+           awayTeam: item.awayTeam || "Time B",
+           homeWinProb: h,
+           drawProb: d,
+           awayWinProb: a,
+           summary: (item.summary || "Análise estatística.") + (isFallback ? " (Est.)" : ""),
+           weatherText: item.weatherText,
+           statsSummary: item.statsSummary,
+           bettingTip: "", 
+           bettingTipCode: "" 
+       });
+    });
+}
+
+export const fetchLoteriaMatches = async (concurso: string): Promise<BatchMatchInput[]> => {
+  const currentKey = getApiKey();
+  if (!currentKey) throw new Error("API Key não configurada.");
+  const ai = new GoogleGenAI({ apiKey: currentKey });
+  const prompt = `Loteca Concurso ${concurso}. Retorne JSON Array: [{ "homeTeam": "A", "awayTeam": "B", "date": "YYYY-MM-DD", "actualHomeScore": n, "actualAwayScore": n }]`;
+
+  try {
+    const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: { tools: [{ googleSearch: {} }] },
+    }));
+    const rawData = parseGeminiResponse(response.text || "");
+    return rawData.map((item: any, index: number) => ({
+      id: (index + 1).toString(),
+      homeTeam: item.homeTeam || "",
+      awayTeam: item.awayTeam || "",
+      date: item.date || new Date().toISOString().split('T')[0],
+      actualHomeScore: item.actualHomeScore,
+      actualAwayScore: item.actualAwayScore
+    }));
+  } catch (error) {
+    throw new Error("Erro ao buscar concurso. Tente novamente em 1 min.");
+  }
+};
+
+export const fetchLoteriaPrizeInfo = async (concurso: string): Promise<LoteriaPrizeInfo> => {
+  const currentKey = getApiKey();
+  if (!currentKey) throw new Error("API Key não configurada.");
+  const ai = new GoogleGenAI({ apiKey: currentKey });
+  const prompt = `Resultado Loteca ${concurso}. JSON: { "prize14": "valor", "winners14": n, "prize13": "valor", "winners13": n, "accumulated": bool }`;
+
+  try {
+    const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: { tools: [{ googleSearch: {} }] },
+    }));
+    const data = parseGeminiResponse(response.text || "");
+    return {
+      concurso: data.concurso || concurso,
+      prize14: data.prize14 || "Aguardando...",
+      winners14: typeof data.winners14 === 'number' ? data.winners14 : 0,
+      prize13: data.prize13 || "Aguardando...",
+      winners13: typeof data.winners13 === 'number' ? data.winners13 : 0,
+      accumulated: !!data.accumulated
+    };
+  } catch (e) {
+    return { concurso, prize14: "--", winners14: 0, prize13: "--", winners13: 0, accumulated: false };
+  }
+}
+
+export const checkMatchResults = async (matches: BatchMatchInput[]): Promise<BatchMatchInput[]> => {
+  const currentKey = getApiKey();
+  if (!currentKey) throw new Error("API Key não configurada.");
+  
+  const ai = new GoogleGenAI({ apiKey: currentKey });
+  const updatedMatches: BatchMatchInput[] = [];
+  const CHUNK_SIZE = 5; 
+
+  const processChunk = async (chunkMatches: BatchMatchInput[]): Promise<BatchMatchInput[]> => {
+      const list = chunkMatches.map(m => `${m.homeTeam} vs ${m.awayTeam} (${m.date})`).join(', ');
+      const prompt = `Placares reais para: ${list}. Retorne JSON Array: [{ "id": "1", "actualHomeScore": n, "actualAwayScore": n }]`;
+
+      try {
+        const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: { tools: [{ googleSearch: {} }] },
+        }));
+        const resultsData = parseGeminiResponse(response.text || "");
+        
+        return chunkMatches.map(m => {
+           const found = Array.isArray(resultsData) ? resultsData.find((r: any) => 
+             r.id == m.id || r.homeTeam?.includes(m.homeTeam)
+           ) : null;
+
+           if (found && typeof found.actualHomeScore === 'number') {
+             return { ...m, actualHomeScore: found.actualHomeScore, actualAwayScore: found.actualAwayScore };
+           }
+           return m;
+        });
+      } catch (error) {
+        return chunkMatches;
+      }
+  };
+
+  for (let i = 0; i < matches.length; i += CHUNK_SIZE) {
+      if (i > 0) await delay(3000);
+      const chunk = matches.slice(i, i + CHUNK_SIZE);
+      const processedChunk = await processChunk(chunk);
+      updatedMatches.push(...processedChunk);
+  }
+  return updatedMatches;
+};
+
+export const runHistoricalBacktest = async (
+  startDraw: number, 
+  endDraw: number,
+  onProgress: (message: string) => void
+): Promise<HistoricalDrawStats[]> => {
+  return []; 
+};
+
+// --- VAR ANALYSIS FEATURE ---
+
+export const findMatchesByYear = async (teamA: string, teamB: string, year: string): Promise<MatchCandidate[]> => {
+  const currentKey = getApiKey();
+  if (!currentKey) throw new Error("API Key não configurada.");
+  const ai = new GoogleGenAI({ apiKey: currentKey });
+
+  const prompt = `
+    Liste todos os jogos oficiais de futebol entre **${teamA}** e **${teamB}** ocorridos no ano de **${year}**.
+    Ignore amistosos se houver jogos oficiais.
+    
+    RETORNE APENAS UM JSON ARRAY:
+    [
+      {
+        "date": "YYYY-MM-DD",
+        "homeTeam": "Nome Time Mandante",
+        "awayTeam": "Nome Time Visitante",
+        "score": "Placar Final (ex: 2-1)",
+        "competition": "Nome do Campeonato (ex: Brasileirão, Copa do Brasil)"
+      }
+    ]
+  `;
+
+  try {
+     const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: { tools: [{ googleSearch: {} }] },
+     }), 2, 2000);
+
+     const parsedData = parseGeminiResponse(response.text || "");
+     if (Array.isArray(parsedData)) {
+        return parsedData;
+     }
+     return [];
+  } catch (e) {
+     console.error("Error finding matches", e);
+     throw new Error("Erro ao buscar jogos. Verifique os times e o ano.");
+  }
+};
+
+export const runVarAnalysis = async (home: string, away: string, date: string): Promise<VarAnalysisResult> => {
+   const currentKey = getApiKey();
+   if (!currentKey) throw new Error("API Key não configurada.");
+   
+   const ai = new GoogleGenAI({ apiKey: currentKey });
+   
+   const prompt = `
+     Atue como um especialista em arbitragem de futebol.
+     Analise a arbitragem do jogo: **${home} vs ${away}** realizado em ${date}.
+     
+     TAREFAS:
+     1. Pesquise "polêmicas de arbitragem", "erros de arbitragem", "VAR", "Central do Apito".
+     2. Procure opiniões de comentaristas (PC Oliveira, Sálvio Spínola, etc).
+     
+     RETORNE SOMENTE RAW JSON (sem markdown):
+     {
+       "match": "${home} x ${away}",
+       "date": "${date}",
+       "referee": "Nome do Árbitro",
+       "refereeGrade": number (0-10),
+       "summary": "Resumo (Texto curto)",
+       "incidents": [
+         {
+           "minute": "35' 1T",
+           "description": "Lance",
+           "expertOpinion": "Opinião",
+           "verdict": "CORRECT" | "ERROR" | "CONTROVERSIAL"
+         }
+       ]
+     }
+   `;
+   
+   try {
+      const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: { tools: [{ googleSearch: {} }] }, // Essencial: Search ativado
+      }), 2, 2000);
+      
+      const parsedData = parseGeminiResponse(response.text || "");
+      const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
+        ?.filter((c: any) => c.web?.uri).map((c: any) => ({ uri: c.web.uri, title: c.web.title })) || [];
+        
+      return {
+         match: parsedData.match || `${home} x ${away}`,
+         date: parsedData.date || date,
+         referee: parsedData.referee || "Não identificado",
+         refereeGrade: typeof parsedData.refereeGrade === 'number' ? parsedData.refereeGrade : 5,
+         summary: parsedData.summary || "Sem dados suficientes sobre a arbitragem.",
+         incidents: Array.isArray(parsedData.incidents) ? parsedData.incidents : [],
+         sources
+      };
+      
+   } catch (e) {
+     console.warn("VAR Analysis - Search Failed, trying fallback...", e);
+     
+     // Fallback para conhecimento interno sem pesquisa
+     try {
+         const fallbackResponse = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+             model: "gemini-2.5-flash",
+             contents: prompt + " IMPORTANTE: Use seu conhecimento histórico interno. NÃO pesquise na web.",
+         }), 2, 2000);
+         
+         const parsedData = parseGeminiResponse(fallbackResponse.text || "");
+         return {
+            match: parsedData.match || `${home} x ${away}`,
+            date: parsedData.date || date,
+            referee: parsedData.referee || "Não identificado",
+            refereeGrade: typeof parsedData.refereeGrade === 'number' ? parsedData.refereeGrade : 5,
+            summary: parsedData.summary || "Análise baseada em histórico (Modo Offline).",
+            incidents: Array.isArray(parsedData.incidents) ? parsedData.incidents : [],
+            sources: []
+         };
+     } catch (finalError) {
+         console.error("Fatal VAR Error", finalError);
+         throw new Error("Não foi possível analisar a arbitragem deste jogo. Verifique se a data está correta ou se o jogo já ocorreu.");
+     }
+   }
+};
