@@ -3,18 +3,60 @@ import React, { useState, useMemo, useRef } from 'react';
 import { BatchMatchInput, BatchResultItem, RiskLevel, LoteriaPrizeInfo } from '../types';
 import { runBatchSimulation, fetchLoteriaMatches, checkMatchResults, fetchLoteriaPrizeInfo } from '../services/geminiService';
 import RiskSelector from './RiskSelector';
-import { Plus, Trash2, Play, Loader2, Download, Search, Ticket, Check, AlertCircle, Trophy, Lightbulb, TrendingUp, RotateCcw, X, Info, Grid3X3, Settings, MessageSquare, FileDown, Banknote, Calculator, AlertTriangle, Cloud, CloudRain, Sun, BarChart2, Users } from 'lucide-react';
+import { Plus, Trash2, Play, Loader2, Download, Search, Ticket, Check, AlertCircle, Trophy, Lightbulb, TrendingUp, RotateCcw, X, Info, Grid3X3, Settings, MessageSquare, FileDown, Banknote, Calculator, AlertTriangle, Cloud, CloudRain, Sun, BarChart2, Users, Wand2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
-// LOGIC: Calculate Strategy locally based on probabilities
-const calculateStrategy = (homeProb: number, drawProb: number, awayProb: number, risk: RiskLevel): { code: string, tip: string } => {
-  const diff = homeProb - awayProb;
+// LOGIC: Calculate Strategy locally based on probabilities AND Zebra Level
+const calculateStrategy = (
+  homeProb: number, 
+  drawProb: number, 
+  awayProb: number, 
+  risk: RiskLevel,
+  zebraLevel: number = 0
+): { code: string, tip: string } => {
+  
+  // 1. Aplicar Fator Zebra (Chaos Math)
+  // Zebra level (0-10) achata a curva de probabilidade, tirando do favorito e dando pro azarão/empate
+  let h = homeProb;
+  let d = drawProb;
+  let a = awayProb;
+
+  if (zebraLevel > 0) {
+      const chaosFactor = zebraLevel / 10; // 0.1 a 1.0
+      
+      // Diferença entre os times
+      const gap = Math.abs(h - a);
+      
+      // Quanto maior a zebra, mais reduzimos essa diferença (equalização)
+      const equalization = gap * (chaosFactor * 0.8); // Reduz até 80% da vantagem técnica
+
+      if (h > a) {
+          h -= equalization;
+          a += (equalization * 0.6); // Azarão ganha força
+          d += (equalization * 0.4); // Empate ganha força
+      } else {
+          a -= equalization;
+          h += (equalization * 0.6);
+          d += (equalization * 0.4);
+      }
+
+      // Zebra Extrema (9 ou 10): Inverte levemente favoritismos marginais ou força empates
+      if (zebraLevel >= 9) {
+          // Boost extra no empate
+          d += 15;
+          h -= 7.5;
+          a -= 7.5;
+      }
+  }
+
+  // Recalcula favorito baseado nos novos números "Zebrados"
+  const diff = h - a;
   const absDiff = Math.abs(diff);
   const favorite = diff > 0 ? 'HOME' : 'AWAY';
-  const favProb = Math.max(homeProb, awayProb);
+  const favProb = Math.max(h, a);
 
-  // Strategy Matrix
+  // Strategy Matrix (Usando probabilidades ajustadas pela Zebra)
   switch (risk) {
     case RiskLevel.CONSERVATIVE:
       // Safety first: Double Chance if favorite isn't overwhelming
@@ -30,7 +72,7 @@ const calculateStrategy = (homeProb: number, drawProb: number, awayProb: number,
 
     case RiskLevel.MODERATE:
       // Standard: Single bet if prob > 45. Draw if balanced.
-      if (absDiff < 10 && drawProb > 30) return { code: 'X', tip: 'Jogo Equilibrado' };
+      if (absDiff < 10 && d > 30) return { code: 'X', tip: 'Jogo Equilibrado' };
       if (favProb > 45) return { code: favorite === 'HOME' ? '1' : '2', tip: 'Aposta Seca' };
       return { code: favorite === 'HOME' ? '1X' : 'X2', tip: 'Dupla Chance' };
 
@@ -43,8 +85,8 @@ const calculateStrategy = (homeProb: number, drawProb: number, awayProb: number,
     case RiskLevel.BOLD:
       // Zebra Hunter: Bet on Draw or Underdog if odds allow
       if (absDiff < 15) return { code: 'X', tip: 'Cravar Empate' };
-      if (favorite === 'HOME' && awayProb > 25) return { code: 'X2', tip: 'Zebra Visitante' };
-      if (favorite === 'AWAY' && homeProb > 25) return { code: '1X', tip: 'Zebra Casa' };
+      if (favorite === 'HOME' && a > 25) return { code: 'X2', tip: 'Zebra Visitante' };
+      if (favorite === 'AWAY' && h > 25) return { code: '1X', tip: 'Zebra Casa' };
       return { code: favorite === 'HOME' ? '1' : '2', tip: 'Favorito Absoluto' };
       
     default:
@@ -69,6 +111,7 @@ const BatchMode: React.FC = () => {
 
   const ticketRef = useRef<HTMLDivElement>(null);
   const [riskLevel, setRiskLevel] = useState<RiskLevel>(RiskLevel.MODERATE);
+  const [zebraLevel, setZebraLevel] = useState<number>(0); // 0 a 10
   const [globalObservations, setGlobalObservations] = useState('');
 
   const hasValidScore = (score: number | string | undefined | null) => {
@@ -192,9 +235,9 @@ const BatchMode: React.FC = () => {
     
     let tip = specificTipCode ? specificTipCode.toUpperCase() : '';
     
-    // Se não veio código específico, calcular agora baseado no risco atual e nas probs
+    // Se não veio código específico, calcular agora baseado no risco atual e nas probs + ZEBRA
     if (!tip) {
-       const calculated = calculateStrategy(res.homeWinProb, res.drawProb, res.awayWinProb, riskLevel);
+       const calculated = calculateStrategy(res.homeWinProb, res.drawProb, res.awayWinProb, riskLevel, zebraLevel);
        tip = calculated.code;
     }
 
@@ -218,8 +261,8 @@ const BatchMode: React.FC = () => {
       const matchInput = matches.find(m => m.id === res.id);
       if (matchInput && hasValidScore(matchInput.actualHomeScore) && hasValidScore(matchInput.actualAwayScore)) {
         totalWithResults++;
-        // Calculate dynamic strategy
-        const strategy = calculateStrategy(res.homeWinProb, res.drawProb, res.awayWinProb, riskLevel);
+        // Calculate dynamic strategy WITH ZEBRA
+        const strategy = calculateStrategy(res.homeWinProb, res.drawProb, res.awayWinProb, riskLevel, zebraLevel);
         if (checkPrediction(res, Number(matchInput.actualHomeScore), Number(matchInput.actualAwayScore), strategy.code)) {
           hits++;
         } else {
@@ -230,7 +273,7 @@ const BatchMode: React.FC = () => {
 
     if (totalWithResults === 0) return null;
     return { hits, misses, total: totalWithResults, percentage: Math.round((hits / totalWithResults) * 100) };
-  }, [results, matches, riskLevel]); 
+  }, [results, matches, riskLevel, zebraLevel]); // Adicionado zebraLevel dependency
 
   // Strategy Scores for Selector
   const strategyScores = useMemo(() => {
@@ -243,7 +286,8 @@ const BatchMode: React.FC = () => {
         results.forEach(res => {
            const matchInput = matches.find(m => m.id === res.id);
            if (matchInput && hasValidScore(matchInput.actualHomeScore) && hasValidScore(matchInput.actualAwayScore)) {
-                 const strategy = calculateStrategy(res.homeWinProb, res.drawProb, res.awayWinProb, level);
+                 // WITH ZEBRA
+                 const strategy = calculateStrategy(res.homeWinProb, res.drawProb, res.awayWinProb, level, zebraLevel);
                  if (checkPrediction(res, Number(matchInput.actualHomeScore), Number(matchInput.actualAwayScore), strategy.code)) {
                     hits++;
                  }
@@ -253,7 +297,7 @@ const BatchMode: React.FC = () => {
     });
     const hasAnyResult = matches.some(m => hasValidScore(m.actualHomeScore));
     return hasAnyResult ? scores : null;
-  }, [results, matches]);
+  }, [results, matches, zebraLevel]); // Adicionado zebraLevel
 
   const betCost = useMemo(() => {
     if (results.length === 0) return null;
@@ -261,7 +305,8 @@ const BatchMode: React.FC = () => {
     let triples = 0;
 
     results.forEach(res => {
-      const strategy = calculateStrategy(res.homeWinProb, res.drawProb, res.awayWinProb, riskLevel);
+      // WITH ZEBRA
+      const strategy = calculateStrategy(res.homeWinProb, res.drawProb, res.awayWinProb, riskLevel, zebraLevel);
       const tip = strategy.code;
       if (['1X', 'X2', '12'].includes(tip)) doubles++;
       if (tip === 'ALL' || tip === '1X2') triples++;
@@ -271,7 +316,7 @@ const BatchMode: React.FC = () => {
     const combinations = Math.pow(2, doubles) * Math.pow(3, triples);
     const total = combinations * unitPrice;
     return { doubles, triples, combinations, total, isBelowMinimum: total < 3.00 };
-  }, [results, riskLevel]);
+  }, [results, riskLevel, zebraLevel]); // Adicionado zebraLevel
 
   const getMyPrizeStatus = (hits: number) => {
      if (hits === 14) return { status: "PREMIAÇÃO MÁXIMA", color: "text-emerald-400", bg: "bg-emerald-500/20" };
@@ -373,7 +418,8 @@ const BatchMode: React.FC = () => {
             const result = results.find(r => r.id === match.id);
             let statusIcon = null;
             if (result && hasValidScore(match.actualHomeScore) && hasValidScore(match.actualAwayScore)) {
-               const calculated = calculateStrategy(result.homeWinProb, result.drawProb, result.awayWinProb, riskLevel);
+               // WITH ZEBRA
+               const calculated = calculateStrategy(result.homeWinProb, result.drawProb, result.awayWinProb, riskLevel, zebraLevel);
                const isHit = checkPrediction(result, Number(match.actualHomeScore), Number(match.actualAwayScore), calculated.code);
                
                statusIcon = isHit 
@@ -416,6 +462,15 @@ const BatchMode: React.FC = () => {
                 <div className="col-span-1 flex justify-end">
                   <button onClick={() => removeMatch(match.id)} className="text-slate-600 hover:text-red-500"><Trash2 size={14} /></button>
                 </div>
+                <div className="col-span-12 md:col-span-2">
+                    <input
+                        type="date"
+                        className="w-full bg-transparent border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-500 text-center cursor-pointer [color-scheme:dark]"
+                        value={match.date}
+                        onChange={(e) => updateMatch(match.id, 'date', e.target.value)}
+                        onFocus={(e) => e.target.showPicker()}
+                    />
+                </div>
               </div>
             );
           })}
@@ -423,13 +478,44 @@ const BatchMode: React.FC = () => {
 
         <div className="mt-8 pt-6 border-t border-slate-800">
            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-950 p-5 rounded-2xl border border-slate-800/50">
-              <div>
+              <div className="space-y-6">
                 <RiskSelector 
                   value={riskLevel} 
                   onChange={setRiskLevel} 
                   scores={strategyScores}
                   totalPoints={matches.length}
                 />
+                
+                {/* ZEBRA LEVEL SLIDER */}
+                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+                    <div className="flex justify-between items-center mb-2">
+                         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                            <span className="text-xl">🦓</span> Nível Zebra
+                         </label>
+                         <span className={`text-xs font-mono font-black px-2 py-0.5 rounded ${zebraLevel === 0 ? 'text-slate-500' : zebraLevel > 7 ? 'bg-red-500 text-white' : 'bg-yellow-500 text-black'}`}>
+                             {zebraLevel}/10
+                         </span>
+                    </div>
+                    <input 
+                        type="range" 
+                        min="0" 
+                        max="10" 
+                        step="1" 
+                        value={zebraLevel}
+                        onChange={(e) => setZebraLevel(Number(e.target.value))}
+                        className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                    />
+                    <div className="flex justify-between mt-2 text-[9px] text-slate-500 font-bold uppercase tracking-wide">
+                        <span>Lógica Pura</span>
+                        <span>Caos Total</span>
+                    </div>
+                    <div className="mt-2 text-[10px] text-slate-400 italic text-center">
+                        {zebraLevel === 0 && "Respeita 100% o favoritismo estatístico."}
+                        {zebraLevel > 0 && zebraLevel <= 4 && "Suaviza favoritismos, aumentando chance de empates."}
+                        {zebraLevel > 4 && zebraLevel <= 7 && "Equilibra o jogo: zebras têm chances reais."}
+                        {zebraLevel > 7 && "Modo Caos: Inverte lógicas e busca resultados improváveis."}
+                    </div>
+                </div>
               </div>
               <div>
                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block">Observações</label>
@@ -468,6 +554,9 @@ const BatchMode: React.FC = () => {
                    <div className="bg-slate-800 text-yellow-500 p-2 rounded-lg"><Grid3X3 size={20}/></div>
                    <div>
                       <h4 className="text-slate-800 font-black uppercase text-lg">Volante Otimizado ({riskLevel})</h4>
+                      {zebraLevel > 0 && (
+                          <span className="text-[10px] bg-slate-800 text-white px-2 py-0.5 rounded ml-2">🦓 Zebra Lv.{zebraLevel}</span>
+                      )}
                    </div>
                 </div>
                 <button onClick={handleDownloadPDF} disabled={isGeneratingPdf} className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded flex items-center gap-2">
@@ -494,8 +583,8 @@ const BatchMode: React.FC = () => {
                      const res = results.find(r => r.id === matchInput.id);
                      if (!res) return null;
 
-                     // Calc Strategy Locally
-                     const strategy = calculateStrategy(res.homeWinProb, res.drawProb, res.awayWinProb, riskLevel);
+                     // Calc Strategy Locally WITH ZEBRA
+                     const strategy = calculateStrategy(res.homeWinProb, res.drawProb, res.awayWinProb, riskLevel, zebraLevel);
                      const tip = strategy.code;
                      
                      const is1 = tip.includes('1') || tip === 'ALL';
