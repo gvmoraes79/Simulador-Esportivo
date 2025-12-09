@@ -5,6 +5,21 @@ import { MatchInput, SimulationResult, TeamMood, BatchMatchInput, BatchResultIte
 // Helper for delay
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Obtém a API Key de forma segura (suporta Vite e process.env)
+const getApiKey = (): string => {
+  // 1. Tenta formato Vite (Padrão para esse projeto)
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.VITE_API_KEY) {
+    return (import.meta as any).env.VITE_API_KEY;
+  }
+  // 2. Tenta formato Node/Process (Legado ou Vercel backend)
+  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+    return process.env.API_KEY;
+  }
+  return "";
+};
+
+const API_KEY = getApiKey();
+
 // GLOBAL REQUEST MUTEX
 let requestQueue: Promise<any> = Promise.resolve();
 
@@ -170,9 +185,9 @@ const sanitizeSimulationResult = (data: any, input: MatchInput): any => {
 };
 
 export const runSimulation = async (input: MatchInput): Promise<SimulationResult> => {
-  if (!process.env.API_KEY) throw new Error("API_KEY not found.");
+  if (!API_KEY) throw new Error("API Key não configurada. Verifique VITE_API_KEY.");
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: API_KEY });
   const prompt = `
     Analista esportivo. Jogo: **${input.homeTeamName}** vs **${input.awayTeamName}**.
     Data: ${input.date}.
@@ -223,9 +238,9 @@ export const runBatchSimulation = async (
   observations: string = "",
   onProgress?: (current: number, total: number, message: string) => void
 ): Promise<BatchResultItem[]> => {
-  if (!process.env.API_KEY) throw new Error("API_KEY not found.");
+  if (!API_KEY) throw new Error("API Key não configurada. Verifique VITE_API_KEY.");
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: API_KEY });
   const results: BatchResultItem[] = [];
   const CHUNK_SIZE = 5; 
 
@@ -317,9 +332,9 @@ function processChunkData(data: any, resultsArray: BatchResultItem[], isFallback
 }
 
 export const fetchLoteriaMatches = async (concurso: string): Promise<BatchMatchInput[]> => {
-  if (!process.env.API_KEY) throw new Error("API_KEY not found.");
+  if (!API_KEY) throw new Error("API Key não configurada. Verifique VITE_API_KEY.");
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: API_KEY });
   const prompt = `Loteca Concurso ${concurso}. Retorne JSON Array: [{ "homeTeam": "A", "awayTeam": "B", "date": "YYYY-MM-DD", "actualHomeScore": n, "actualAwayScore": n }]`;
 
   try {
@@ -343,8 +358,8 @@ export const fetchLoteriaMatches = async (concurso: string): Promise<BatchMatchI
 };
 
 export const fetchLoteriaPrizeInfo = async (concurso: string): Promise<LoteriaPrizeInfo> => {
-  if (!process.env.API_KEY) throw new Error("API_KEY required");
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  if (!API_KEY) throw new Error("API Key não configurada. Verifique VITE_API_KEY.");
+  const ai = new GoogleGenAI({ apiKey: API_KEY });
   const prompt = `Resultado Loteca ${concurso}. JSON: { "prize14": "valor", "winners14": n, "prize13": "valor", "winners13": n, "accumulated": bool }`;
 
   try {
@@ -368,9 +383,9 @@ export const fetchLoteriaPrizeInfo = async (concurso: string): Promise<LoteriaPr
 }
 
 export const checkMatchResults = async (matches: BatchMatchInput[]): Promise<BatchMatchInput[]> => {
-  if (!process.env.API_KEY) throw new Error("API_KEY not found.");
+  if (!API_KEY) throw new Error("API Key não configurada. Verifique VITE_API_KEY.");
   
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: API_KEY });
   const updatedMatches: BatchMatchInput[] = [];
   const CHUNK_SIZE = 5; 
 
@@ -421,8 +436,8 @@ export const runHistoricalBacktest = async (
 // --- VAR ANALYSIS FEATURE ---
 
 export const findMatchesByYear = async (teamA: string, teamB: string, year: string): Promise<MatchCandidate[]> => {
-  if (!process.env.API_KEY) throw new Error("API_KEY required");
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  if (!API_KEY) throw new Error("API Key não configurada. Verifique VITE_API_KEY.");
+  const ai = new GoogleGenAI({ apiKey: API_KEY });
 
   const prompt = `
     Liste todos os jogos oficiais de futebol entre **${teamA}** e **${teamB}** ocorridos no ano de **${year}**.
@@ -459,9 +474,9 @@ export const findMatchesByYear = async (teamA: string, teamB: string, year: stri
 };
 
 export const runVarAnalysis = async (home: string, away: string, date: string): Promise<VarAnalysisResult> => {
-   if (!process.env.API_KEY) throw new Error("API_KEY required");
+   if (!API_KEY) throw new Error("API Key não configurada. Verifique VITE_API_KEY.");
    
-   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+   const ai = new GoogleGenAI({ apiKey: API_KEY });
    
    const prompt = `
      Atue como um especialista em arbitragem de futebol.
