@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef } from 'react';
 import { BatchMatchInput, BatchResultItem, RiskLevel, LoteriaPrizeInfo } from '../types';
 import { runBatchSimulation, fetchLoteriaMatches, checkMatchResults, fetchLoteriaPrizeInfo } from '../services/geminiService';
@@ -17,36 +16,35 @@ const calculateStrategy = (
 ): { code: string, tip: string } => {
   
   // 1. Aplicar Fator Zebra (Chaos Math)
-  // Zebra level (0-10) achata a curva de probabilidade, tirando do favorito e dando pro azarão/empate
   let h = homeProb;
   let d = drawProb;
   let a = awayProb;
 
   if (zebraLevel > 0) {
-      const chaosFactor = zebraLevel / 10; // 0.1 a 1.0
+      const chaosFactor = zebraLevel / 10; // 0.1 a 1.0 (Máximo)
       
       // Diferença entre os times
       const gap = Math.abs(h - a);
       
-      // Quanto maior a zebra, mais reduzimos essa diferença (equalização)
-      const equalization = gap * (chaosFactor * 0.8); // Reduz até 80% da vantagem técnica
+      // Equalização: Reduz a vantagem do favorito
+      const equalization = gap * (chaosFactor * 0.9); // Até 90% da vantagem é comida pela zebra
 
       if (h > a) {
           h -= equalization;
-          a += (equalization * 0.6); // Azarão ganha força
-          d += (equalization * 0.4); // Empate ganha força
+          a += (equalization * 0.5); // Azarão ganha força
+          d += (equalization * 0.5); // Empate ganha força
       } else {
           a -= equalization;
-          h += (equalization * 0.6);
-          d += (equalization * 0.4);
+          h += (equalization * 0.5);
+          d += (equalization * 0.5);
       }
 
-      // Zebra Extrema (9 ou 10): Inverte levemente favoritismos marginais ou força empates
-      if (zebraLevel >= 9) {
-          // Boost extra no empate
-          d += 15;
-          h -= 7.5;
-          a -= 7.5;
+      // Zebra Extrema (8, 9, 10): Inverte tendências e força empates
+      if (zebraLevel >= 8) {
+          const randomBoost = (zebraLevel - 7) * 5; // +5%, +10%, +15%
+          d += randomBoost;
+          h -= (randomBoost / 2);
+          a -= (randomBoost / 2);
       }
   }
 
@@ -60,13 +58,13 @@ const calculateStrategy = (
   switch (risk) {
     case RiskLevel.CONSERVATIVE:
       // Safety first: Double Chance if favorite isn't overwhelming
-      if (favProb > 60) return { code: favorite === 'HOME' ? '1' : '2', tip: 'Favorito Claro' };
+      if (favProb > 65) return { code: favorite === 'HOME' ? '1' : '2', tip: 'Favorito Claro' };
       if (favorite === 'HOME') return { code: '1X', tip: 'Casa ou Empate' };
       return { code: 'X2', tip: 'Visitante ou Empate' };
 
     case RiskLevel.CALCULATED:
       // Smart Value: Single bet if prob > 50, else cover draw
-      if (favProb > 50) return { code: favorite === 'HOME' ? '1' : '2', tip: 'Valor no Favorito' };
+      if (favProb > 55) return { code: favorite === 'HOME' ? '1' : '2', tip: 'Valor no Favorito' };
       if (diff > 0) return { code: '1X', tip: 'Proteção Empate' };
       return { code: 'X2', tip: 'Proteção Empate' };
 
@@ -85,8 +83,8 @@ const calculateStrategy = (
     case RiskLevel.BOLD:
       // Zebra Hunter: Bet on Draw or Underdog if odds allow
       if (absDiff < 15) return { code: 'X', tip: 'Cravar Empate' };
-      if (favorite === 'HOME' && a > 25) return { code: 'X2', tip: 'Zebra Visitante' };
-      if (favorite === 'AWAY' && h > 25) return { code: '1X', tip: 'Zebra Casa' };
+      if (favorite === 'HOME' && a > 20) return { code: 'X2', tip: 'Zebra Visitante' };
+      if (favorite === 'AWAY' && h > 20) return { code: '1X', tip: 'Zebra Casa' };
       return { code: favorite === 'HOME' ? '1' : '2', tip: 'Favorito Absoluto' };
       
     default:
@@ -273,7 +271,7 @@ const BatchMode: React.FC = () => {
 
     if (totalWithResults === 0) return null;
     return { hits, misses, total: totalWithResults, percentage: Math.round((hits / totalWithResults) * 100) };
-  }, [results, matches, riskLevel, zebraLevel]); // Adicionado zebraLevel dependency
+  }, [results, matches, riskLevel, zebraLevel]);
 
   // Strategy Scores for Selector
   const strategyScores = useMemo(() => {
@@ -297,7 +295,7 @@ const BatchMode: React.FC = () => {
     });
     const hasAnyResult = matches.some(m => hasValidScore(m.actualHomeScore));
     return hasAnyResult ? scores : null;
-  }, [results, matches, zebraLevel]); // Adicionado zebraLevel
+  }, [results, matches, zebraLevel]);
 
   const betCost = useMemo(() => {
     if (results.length === 0) return null;
@@ -316,7 +314,7 @@ const BatchMode: React.FC = () => {
     const combinations = Math.pow(2, doubles) * Math.pow(3, triples);
     const total = combinations * unitPrice;
     return { doubles, triples, combinations, total, isBelowMinimum: total < 3.00 };
-  }, [results, riskLevel, zebraLevel]); // Adicionado zebraLevel
+  }, [results, riskLevel, zebraLevel]);
 
   const getMyPrizeStatus = (hits: number) => {
      if (hits === 14) return { status: "PREMIAÇÃO MÁXIMA", color: "text-emerald-400", bg: "bg-emerald-500/20" };
@@ -445,7 +443,7 @@ const BatchMode: React.FC = () => {
                 <div className="col-span-1 flex flex-col items-center justify-center">
                    <span className="text-slate-700 text-[10px]">X</span>
                    {(hasValidScore(match.actualHomeScore)) && (
-                     <span className="text-[10px] text-yellow-500 font-bold bg-yellow-500/10 px-1 rounded mt-1">
+                     <span className="text-cyan-500 font-bold bg-cyan-500/10 px-1 rounded mt-1">
                        {match.actualHomeScore}-{match.actualAwayScore}
                      </span>
                    )}
@@ -487,12 +485,12 @@ const BatchMode: React.FC = () => {
                 />
                 
                 {/* ZEBRA LEVEL SLIDER */}
-                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800">
-                    <div className="flex justify-between items-center mb-2">
+                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800 shadow-inner">
+                    <div className="flex justify-between items-center mb-3">
                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                            <span className="text-xl">🦓</span> Nível Zebra
+                            <span className="text-2xl">🦓</span> Nível Zebra
                          </label>
-                         <span className={`text-xs font-mono font-black px-2 py-0.5 rounded ${zebraLevel === 0 ? 'text-slate-500' : zebraLevel > 7 ? 'bg-red-500 text-white' : 'bg-yellow-500 text-black'}`}>
+                         <span className={`text-xs font-mono font-black px-3 py-1 rounded-full ${zebraLevel === 0 ? 'bg-slate-800 text-slate-500' : zebraLevel > 7 ? 'bg-red-500 text-white shadow-red-900/50 shadow-lg' : 'bg-yellow-500 text-black shadow-yellow-900/50 shadow-lg'}`}>
                              {zebraLevel}/10
                          </span>
                     </div>
@@ -505,23 +503,23 @@ const BatchMode: React.FC = () => {
                         onChange={(e) => setZebraLevel(Number(e.target.value))}
                         className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
                     />
-                    <div className="flex justify-between mt-2 text-[9px] text-slate-500 font-bold uppercase tracking-wide">
+                    <div className="flex justify-between mt-2 text-[9px] text-slate-500 font-bold uppercase tracking-wide px-1">
                         <span>Lógica Pura</span>
                         <span>Caos Total</span>
                     </div>
-                    <div className="mt-2 text-[10px] text-slate-400 italic text-center">
-                        {zebraLevel === 0 && "Respeita 100% o favoritismo estatístico."}
-                        {zebraLevel > 0 && zebraLevel <= 4 && "Suaviza favoritismos, aumentando chance de empates."}
-                        {zebraLevel > 4 && zebraLevel <= 7 && "Equilibra o jogo: zebras têm chances reais."}
-                        {zebraLevel > 7 && "Modo Caos: Inverte lógicas e busca resultados improváveis."}
+                    <div className="mt-3 text-[10px] text-slate-400 italic text-center bg-slate-800/50 p-2 rounded border border-slate-700/50">
+                        {zebraLevel === 0 && "O sistema respeita 100% as probabilidades estatísticas."}
+                        {zebraLevel > 0 && zebraLevel <= 4 && "Suaviza favoritismos claros, aumentando chance de empates."}
+                        {zebraLevel > 4 && zebraLevel <= 7 && "Equilibra o jogo: zebras têm chances reais de vitória."}
+                        {zebraLevel > 7 && "Modo Caos: Inverte lógicas e busca resultados improváveis de alto risco."}
                     </div>
                 </div>
               </div>
               <div>
-                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block">Observações</label>
+                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block">Observações Globais</label>
                  <textarea
-                   className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-3 text-white text-xs"
-                   placeholder="Ex: Rodada difícil..."
+                   className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-3 text-white text-xs h-32 resize-none focus:ring-2 focus:ring-emerald-500/50 outline-none"
+                   placeholder="Ex: Rodada com muitos clássicos, gramados molhados..."
                    value={globalObservations}
                    onChange={(e) => setGlobalObservations(e.target.value)}
                  />
@@ -555,11 +553,11 @@ const BatchMode: React.FC = () => {
                    <div>
                       <h4 className="text-slate-800 font-black uppercase text-lg">Volante Otimizado ({riskLevel})</h4>
                       {zebraLevel > 0 && (
-                          <span className="text-[10px] bg-slate-800 text-white px-2 py-0.5 rounded ml-2">🦓 Zebra Lv.{zebraLevel}</span>
+                          <span className="text-[10px] bg-slate-800 text-white px-2 py-0.5 rounded ml-2 font-bold">🦓 Zebra Lv.{zebraLevel}</span>
                       )}
                    </div>
                 </div>
-                <button onClick={handleDownloadPDF} disabled={isGeneratingPdf} className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded flex items-center gap-2">
+                <button onClick={handleDownloadPDF} disabled={isGeneratingPdf} className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded flex items-center gap-2 hover:bg-slate-700">
                   {isGeneratingPdf ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} PDF
                 </button>
              </div>
@@ -567,15 +565,15 @@ const BatchMode: React.FC = () => {
              <div className="overflow-x-auto">
                <table className="w-full text-sm">
                  <thead>
-                   <tr className="bg-slate-5 text-slate-500 text-[10px] uppercase font-bold text-center">
-                     <th className="py-2 w-12">#</th>
-                     <th className="py-2 text-left px-4">Mandante</th>
-                     <th className="py-2 w-16 bg-blue-50/50">1</th>
-                     <th className="py-2 w-16 bg-slate-100">X</th>
-                     <th className="py-2 w-16 bg-red-50/50">2</th>
-                     <th className="py-2 text-right px-4">Visitante</th>
-                     <th className="py-2 w-24 bg-slate-100">Real</th>
-                     <th className="py-2 w-12">Status</th>
+                   <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase font-bold text-center border-b border-slate-200">
+                     <th className="py-3 w-12">#</th>
+                     <th className="py-3 text-left px-4">Mandante</th>
+                     <th className="py-3 w-16 bg-blue-50/50 border-l border-slate-200 text-blue-800">1</th>
+                     <th className="py-3 w-16 bg-slate-100 border-l border-slate-200 text-slate-800">X</th>
+                     <th className="py-3 w-16 bg-red-50/50 border-l border-slate-200 text-red-800">2</th>
+                     <th className="py-3 text-right px-4 border-l border-slate-200">Visitante</th>
+                     <th className="py-3 w-24 bg-slate-100 border-l border-slate-200">Real</th>
+                     <th className="py-3 w-12 border-l border-slate-200">Status</th>
                    </tr>
                  </thead>
                  <tbody>
@@ -604,19 +602,19 @@ const BatchMode: React.FC = () => {
                         const a = Number(matchInput.actualAwayScore);
                         scoreText = `${h} x ${a}`;
                         const isHit = checkPrediction(res, h, a, tip);
-                        statusIcon = isHit ? <Check size={18} className="text-emerald-500 mx-auto" strokeWidth={3} /> : <X size={18} className="text-red-500 mx-auto" strokeWidth={3} />;
+                        statusIcon = isHit ? <Check size={20} className="text-emerald-500 mx-auto drop-shadow-sm" strokeWidth={3} /> : <X size={20} className="text-red-500 mx-auto drop-shadow-sm" strokeWidth={3} />;
                      }
 
                      return (
-                       <tr key={matchInput.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                       <tr key={matchInput.id} className="border-b border-slate-100 hover:bg-blue-50/30 transition-colors">
                          <td className="text-center font-mono text-slate-400 font-bold py-3">{index + 1}</td>
                          <td className="px-4 font-bold text-slate-800">{res.homeTeam}</td>
-                         <td className="p-1"><div className="w-full h-8 flex items-center justify-center rounded border border-slate-200 bg-slate-50 relative overflow-hidden">{is1 && <div className="absolute inset-0 bg-blue-600 flex items-center justify-center text-white font-black" style={{ opacity: op1 }}>X</div>}</div></td>
-                         <td className="p-1"><div className="w-full h-8 flex items-center justify-center rounded border border-slate-200 bg-slate-50 relative overflow-hidden">{isX && <div className="absolute inset-0 bg-slate-500 flex items-center justify-center text-white font-black" style={{ opacity: opX }}>X</div>}</div></td>
-                         <td className="p-1"><div className="w-full h-8 flex items-center justify-center rounded border border-slate-200 bg-slate-50 relative overflow-hidden">{is2 && <div className="absolute inset-0 bg-red-600 flex items-center justify-center text-white font-black" style={{ opacity: op2 }}>X</div>}</div></td>
-                         <td className="px-4 text-right font-bold text-slate-800">{res.awayTeam}</td>
-                         <td className="bg-slate-50 text-center font-mono font-bold text-slate-700">{scoreText}</td>
-                         <td className="text-center">{statusIcon}</td>
+                         <td className="p-1 border-l border-slate-100"><div className="w-full h-8 flex items-center justify-center rounded border border-slate-200 bg-white relative overflow-hidden shadow-sm">{is1 && <div className="absolute inset-0 bg-blue-600 flex items-center justify-center text-white font-black" style={{ opacity: Math.max(0.4, op1) }}>X</div>}</div></td>
+                         <td className="p-1 border-l border-slate-100"><div className="w-full h-8 flex items-center justify-center rounded border border-slate-200 bg-white relative overflow-hidden shadow-sm">{isX && <div className="absolute inset-0 bg-slate-500 flex items-center justify-center text-white font-black" style={{ opacity: Math.max(0.4, opX) }}>X</div>}</div></td>
+                         <td className="p-1 border-l border-slate-100"><div className="w-full h-8 flex items-center justify-center rounded border border-slate-200 bg-white relative overflow-hidden shadow-sm">{is2 && <div className="absolute inset-0 bg-red-600 flex items-center justify-center text-white font-black" style={{ opacity: Math.max(0.4, op2) }}>X</div>}</div></td>
+                         <td className="px-4 text-right font-bold text-slate-800 border-l border-slate-100">{res.awayTeam}</td>
+                         <td className="bg-slate-50 text-center font-mono font-bold text-slate-700 border-l border-slate-200">{scoreText}</td>
+                         <td className="text-center border-l border-slate-200">{statusIcon}</td>
                        </tr>
                      );
                    })}
@@ -625,15 +623,17 @@ const BatchMode: React.FC = () => {
              </div>
              
              {betCost && (
-                <div className={`bg-emerald-50 border-t border-emerald-100 p-4 flex justify-between items-center ${betCost.isBelowMinimum ? 'bg-amber-50' : ''}`}>
+                <div className={`bg-emerald-50 border-t border-emerald-100 p-6 flex justify-between items-center ${betCost.isBelowMinimum ? 'bg-amber-50 border-amber-100' : ''}`}>
                     <div className="flex flex-col text-xs font-bold uppercase tracking-wider gap-1 text-emerald-900">
-                       <div>Duplos: {betCost.doubles}</div>
-                       <div>Triplos: {betCost.triples}</div>
-                       {betCost.isBelowMinimum && <div className="text-amber-600">Mínimo oficial não atingido (R$ 3,00)</div>}
+                       <div className="flex gap-4">
+                          <span>Duplos: <span className="text-lg">{betCost.doubles}</span></span>
+                          <span>Triplos: <span className="text-lg">{betCost.triples}</span></span>
+                       </div>
+                       {betCost.isBelowMinimum && <div className="text-amber-600 flex items-center gap-1 mt-1"><AlertTriangle size={12}/> Aposta mínima não atingida (R$ 3,00)</div>}
                     </div>
                     <div className="flex flex-col items-end">
-                       <div className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest mb-1">Custo Estimado</div>
-                       <div className="text-3xl font-black text-emerald-800 font-mono tracking-tighter">
+                       <div className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest mb-1">Custo Estimado da Aposta</div>
+                       <div className="text-4xl font-black text-emerald-800 font-mono tracking-tighter">
                           {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(betCost.total)}
                        </div>
                     </div>
