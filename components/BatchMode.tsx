@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef } from 'react';
 import { BatchMatchInput, BatchResultItem, RiskLevel, LoteriaPrizeInfo } from '../types';
 import { runBatchSimulation, fetchLoteriaMatches, checkMatchResults, fetchLoteriaPrizeInfo } from '../services/geminiService';
