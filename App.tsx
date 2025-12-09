@@ -79,6 +79,8 @@ const App: React.FC = () => {
      if (apiKey.trim()) {
         localStorage.setItem('sportsim_api_key', apiKey.trim());
         setShowSettings(false);
+        // Limpa erro anterior se houver
+        if (error && error.includes('API')) setError(null);
         alert("Chave API salva e pronta para uso!");
      }
   };
@@ -93,8 +95,14 @@ const App: React.FC = () => {
     try {
       const data = await runSimulation(input);
       setResult(data);
-    } catch (err) {
-      setError("Não foi possível realizar a simulação. Verifique sua chave de API nas configurações ou tente novamente.");
+    } catch (err: any) {
+      const msg = err.message || "Erro desconhecido";
+      if (msg.includes("API Key") || msg.includes("chave") || msg.includes("configurada")) {
+         setError("⚠️ É necessário configurar a API Key para usar o simulador.");
+         setShowSettings(true); // AUTO-OPEN SETTINGS
+      } else {
+         setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -214,7 +222,7 @@ const App: React.FC = () => {
                  
                  <div className="space-y-4">
                     <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-lg text-amber-200 text-xs mb-4">
-                       <strong>Atenção:</strong> Para usar o simulador, você precisa inserir sua chave da API do Google Gemini.
+                       <strong>Atenção:</strong> Para usar o simulador, cole sua chave da API do Google Gemini abaixo.
                     </div>
 
                     <div>
@@ -246,6 +254,19 @@ const App: React.FC = () => {
                  </div>
               </div>
            </div>
+        )}
+
+        {error && !showSettings && (
+             <div className="mb-8 bg-red-950/50 border border-red-500/50 p-4 rounded-xl text-red-200 text-center animate-fade-in flex flex-col items-center gap-2">
+                 <div className="flex items-center gap-2">
+                     <Settings size={18}/> <span>{error}</span>
+                 </div>
+                 {error.includes("API Key") && (
+                     <button onClick={() => setShowSettings(true)} className="text-xs bg-red-900 hover:bg-red-800 px-4 py-2 rounded-full font-bold">
+                         Configurar Agora
+                     </button>
+                 )}
+             </div>
         )}
 
         {mode === 'batch' && <BatchMode />}
