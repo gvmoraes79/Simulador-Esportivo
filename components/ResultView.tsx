@@ -3,7 +3,7 @@ import React from 'react';
 import { SimulationResult } from '../types';
 import { ComparisonRadar, ProbabilityPie, ScoreProbabilitiesChart } from './StatsCharts';
 import LineupView from './LineupView';
-import { ExternalLink, ShieldAlert, User, History, Target, BarChart, RotateCcw, Lightbulb, Check, AlertCircle, CloudRain, Sun, Cloud, CloudLightning, MapPin, TrendingUp, ArrowUp, Layers } from 'lucide-react';
+import { ExternalLink, ShieldAlert, User, History, Target, BarChart, RotateCcw, Lightbulb, Check, AlertCircle, CloudRain, Sun, Cloud, CloudLightning, MapPin, TrendingUp, ArrowUp, Layers, Battery, Flag } from 'lucide-react';
 
 interface ResultViewProps {
   result: SimulationResult;
@@ -166,7 +166,58 @@ const ResultView: React.FC<ResultViewProps> = ({ result, onReset }) => {
              </div>
           </div>
 
-          {/* Stats Summary & Aerial Duel */}
+          {/* Logistics & Arbitragem Panel (NOVO) */}
+          <div className="bg-slate-900/80 rounded-2xl p-6 border border-slate-800 backdrop-blur-sm shadow-xl flex flex-col gap-4">
+              <div>
+                  <h3 className="text-slate-400 font-bold text-xs uppercase tracking-wider mb-3 flex items-center gap-2">
+                      <Battery size={14} className="text-slate-500"/> Desgaste & Logística
+                  </h3>
+                  <div className="space-y-3">
+                      {/* Home Energy */}
+                      <div>
+                          <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+                             <span>{result.homeTeam.name}</span>
+                             <span>{result.homeTeam.restDays ? `${result.homeTeam.restDays} dias descanso` : '--'}</span>
+                          </div>
+                          <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                             <div 
+                               style={{ width: `${Math.min(100, (result.homeTeam.restDays || 0) * 15)}%` }} 
+                               className={`h-full ${ (result.homeTeam.restDays || 0) < 3 ? 'bg-red-500' : 'bg-emerald-500'}`}
+                             ></div>
+                          </div>
+                      </div>
+                      {/* Away Energy */}
+                      <div>
+                          <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+                             <span>{result.awayTeam.name}</span>
+                             <span>{result.awayTeam.restDays ? `${result.awayTeam.restDays} dias descanso` : '--'}</span>
+                          </div>
+                          <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                             <div 
+                               style={{ width: `${Math.min(100, (result.awayTeam.restDays || 0) * 15)}%` }} 
+                               className={`h-full ${ (result.awayTeam.restDays || 0) < 3 ? 'bg-red-500' : 'bg-emerald-500'}`}
+                             ></div>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+
+              {result.referee && (
+                 <div className="border-t border-slate-800 pt-3">
+                    <h3 className="text-slate-400 font-bold text-xs uppercase tracking-wider mb-2 flex items-center gap-2">
+                      <Flag size={14} className="text-slate-500"/> Arbitragem
+                   </h3>
+                   <div className="flex items-center justify-between text-xs">
+                       <span className="text-white font-bold">{result.referee.name}</span>
+                       <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">{result.referee.style}</span>
+                   </div>
+                 </div>
+              )}
+          </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+         {/* Stats Summary & Aerial Duel */}
           <div className="bg-slate-900/80 rounded-2xl p-6 border border-slate-800 backdrop-blur-sm shadow-xl flex flex-col gap-4">
              <div>
                 <h3 className="text-slate-400 font-bold text-xs uppercase tracking-wider mb-4 flex items-center gap-2">
@@ -218,6 +269,23 @@ const ResultView: React.FC<ResultViewProps> = ({ result, onReset }) => {
                 </div>
              )}
           </div>
+          
+           {/* Market Consensus (NOVO) */}
+           <div className="bg-slate-900/80 rounded-2xl p-6 border border-slate-800 backdrop-blur-sm flex flex-col">
+              <h3 className="text-white font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">
+                <div className="bg-purple-500/20 p-1.5 rounded text-purple-500"><Target size={16} /></div>
+                Visão do Mercado (Odds)
+              </h3>
+              <div className="bg-black/40 p-4 rounded-xl border border-white/5 flex-1 flex items-center justify-center">
+                 {result.marketConsensus ? (
+                    <p className="text-slate-300 text-sm font-medium text-center italic">
+                      "{result.marketConsensus}"
+                    </p>
+                 ) : (
+                    <p className="text-slate-600 text-xs text-center">Dados de mercado não disponíveis</p>
+                 )}
+              </div>
+           </div>
       </div>
 
       <LineupView lineups={result.lineups} homeTeamName={result.homeTeam?.name} awayTeamName={result.awayTeam?.name} />

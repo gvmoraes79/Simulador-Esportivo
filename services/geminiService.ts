@@ -1,75 +1,125 @@
 
-import { GoogleGenAI } from "@google/genai";
-import { MatchInput, SimulationResult, TeamMood, BatchMatchInput, BatchResultItem, RiskLevel, LoteriaPrizeInfo } from "../types";
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { MatchInput, SimulationResult, TeamMood, BatchMatchInput, BatchResultItem, RiskLevel, LoteriaPrizeInfo, HistoricalDrawStats, VarAnalysisResult, MatchCandidate } from "../types";
+
+// Helper for delay
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// GLOBAL REQUEST MUTEX
+let requestQueue: Promise<any> = Promise.resolve();
+
+async function scheduleRequest<T>(operation: () => Promise<T>): Promise<T> {
+  const nextRequest = requestQueue.then(async () => {
+    try {
+      // Delay global para "resfriar" a API (Paciência Extrema)
+      await delay(1500); 
+      return await operation();
+    } catch (err) {
+      throw err;
+    } 
+  });
+  
+  requestQueue = nextRequest.catch(() => {});
+  return nextRequest;
+}
+
+// Helper wrapper for API calls with Retry Logic
+async function callWithRetry<T>(
+  apiCall: () => Promise<T>, 
+  retries = 3, 
+  initialDelay = 2000 
+): Promise<T> {
+  
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await scheduleRequest(apiCall);
+    } catch (error: any) {
+      const isRateLimit = error.status === 429 || 
+                          error.status === 503 || 
+                          (error.message && (
+                            error.message.includes('429') || 
+                            error.message.includes('quota') || 
+                            error.message.includes('RESOURCE_EXHAUSTED')
+                          ));
+      
+      if (isRateLimit) {
+        if (i < retries - 1) {
+          // Backoff longo para recuperar cota
+          const waitTime = initialDelay * Math.pow(2, i) + 60000; // +60s de segurança
+          console.warn(`⚠️ Cota da API (429). Esperando ${waitTime/1000}s...`);
+          await delay(waitTime);
+        } else {
+           throw error; 
+        }
+      } else {
+        throw error;
+      }
+    }
+  }
+  throw new Error("Falha na comunicação com a IA.");
+}
 
 const parseGeminiResponse = (text: string): any => {
+  if (!text) throw new Error("Resposta da IA vazia.");
+
   try {
-    const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/);
-    if (jsonMatch && jsonMatch[1]) {
-      return JSON.parse(jsonMatch[1]);
+    // 1. Limpeza agressiva de Markdown
+    let cleanText = text
+      .replace(/```json/gi, '') // Remove ```json (case insensitive)
+      .replace(/```/g, '')      // Remove ``` restantes
+      .trim();
+
+    // 2. Extração cirúrgica do objeto ou array JSON
+    const firstBrace = cleanText.indexOf('{');
+    const firstBracket = cleanText.indexOf('[');
+    
+    let startIndex = -1;
+    
+    // Descobre se começa com { ou [
+    if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+      startIndex = firstBrace;
+    } else if (firstBracket !== -1) {
+      startIndex = firstBracket;
     }
-    const fallbackMatch = text.match(/\{[\s\S]*\}/);
-    if (fallbackMatch) {
-      return JSON.parse(fallbackMatch[0]);
+
+    if (startIndex !== -1) {
+      // Encontra o final correspondente
+      const lastBrace = cleanText.lastIndexOf('}');
+      const lastBracket = cleanText.lastIndexOf(']');
+      let endIndex = Math.max(lastBrace, lastBracket);
+      
+      if (endIndex !== -1 && endIndex > startIndex) {
+        cleanText = cleanText.substring(startIndex, endIndex + 1);
+      }
     }
-    // Tenta encontrar array JSON para o batch
-    const arrayMatch = text.match(/\[[\s\S]*\]/);
-    if (arrayMatch) {
-      return JSON.parse(arrayMatch[0]);
-    }
-    throw new Error("Formato JSON não encontrado na resposta.");
+
+    return JSON.parse(cleanText);
   } catch (e) {
-    console.error("Failed to parse JSON from AI response", e);
-    throw new Error("Falha ao processar os dados da simulação via IA.");
+    console.error("JSON Parse Error. Raw text snippet:", text.substring(0, 200));
+    // Tenta uma última vez parsear direto caso a limpeza tenha falhado
+    try {
+        return JSON.parse(text);
+    } catch (finalError) {
+        throw new Error("Falha ao processar dados da IA (Formato inválido).");
+    }
   }
 };
 
 const sanitizeSimulationResult = (data: any, input: MatchInput): any => {
-  // 1. Extrair valores brutos com defaults seguros
   let homeTeamData = data.homeTeam || {};
   let awayTeamData = data.awayTeam || {};
   
   let homeWinProb = typeof homeTeamData.winProbability === 'number' ? homeTeamData.winProbability : 33;
   let awayWinProb = typeof awayTeamData.winProbability === 'number' ? awayTeamData.winProbability : 33;
   let drawProb = typeof data.drawProbability === 'number' ? data.drawProbability : 34;
-  
-  const bettingTipCode = (data.bettingTipCode || "").toString().toUpperCase();
 
-  // 2. FORCEFUL CONSISTENCY CHECK (CORREÇÃO AGRESSIVA)
-  if (bettingTipCode === '1') {
-    const minWinProb = 45;
-    if (homeWinProb < minWinProb || homeWinProb <= awayWinProb + 5) {
-        homeWinProb = Math.max(homeWinProb, minWinProb, awayWinProb + 15);
-        const remaining = 100 - homeWinProb;
-        drawProb = Math.floor(remaining * 0.6);
-        awayWinProb = remaining - drawProb;
-    }
-  } else if (bettingTipCode === '2') {
-    const minWinProb = 45;
-    if (awayWinProb < minWinProb || awayWinProb <= homeWinProb + 5) {
-        awayWinProb = Math.max(awayWinProb, minWinProb, homeWinProb + 15);
-        const remaining = 100 - awayWinProb;
-        drawProb = Math.floor(remaining * 0.6);
-        homeWinProb = remaining - drawProb;
-    }
-  } else if (bettingTipCode === 'X') {
-     if (drawProb < 35) {
-        drawProb = 40;
-        const remaining = 60;
-        homeWinProb = remaining / 2;
-        awayWinProb = remaining / 2;
-     }
-  }
+  // Normalização
+  let total = homeWinProb + awayWinProb + drawProb;
+  if (total <= 0) total = 1; 
+  homeWinProb = Math.round((homeWinProb / total) * 100);
+  awayWinProb = Math.round((awayWinProb / total) * 100);
+  drawProb = 100 - homeWinProb - awayWinProb;
 
-  // 3. Normalizar para 100%
-  const total = homeWinProb + awayWinProb + drawProb;
-  if (total > 0 && Math.abs(total - 100) > 0) {
-    homeWinProb = Math.round((homeWinProb / total) * 100);
-    awayWinProb = Math.round((awayWinProb / total) * 100);
-    drawProb = 100 - homeWinProb - awayWinProb;
-  }
-
-  // Strict Lineup Sanitization
   const rawLineups = data.lineups || {};
   const lineups = {
     home: Array.isArray(rawLineups.home) ? rawLineups.home : [],
@@ -88,7 +138,8 @@ const sanitizeSimulationResult = (data: any, input: MatchInput): any => {
       aerialDefenseRating: homeTeamData.aerialDefenseRating || 50,
       recentForm: Array.isArray(homeTeamData.recentForm) ? homeTeamData.recentForm : [],
       keyPlayers: Array.isArray(homeTeamData.keyPlayers) ? homeTeamData.keyPlayers : [],
-      statsText: homeTeamData.statsText || "Dados indisponíveis."
+      statsText: homeTeamData.statsText || "Dados indisponíveis.",
+      restDays: typeof homeTeamData.restDays === 'number' ? homeTeamData.restDays : 7
     },
     awayTeam: {
       name: input.awayTeamName,
@@ -101,230 +152,183 @@ const sanitizeSimulationResult = (data: any, input: MatchInput): any => {
       aerialDefenseRating: awayTeamData.aerialDefenseRating || 50, 
       recentForm: Array.isArray(awayTeamData.recentForm) ? awayTeamData.recentForm : [],
       keyPlayers: Array.isArray(awayTeamData.keyPlayers) ? awayTeamData.keyPlayers : [],
-      statsText: awayTeamData.statsText || "Dados indisponíveis."
+      statsText: awayTeamData.statsText || "Dados indisponíveis.",
+      restDays: typeof awayTeamData.restDays === 'number' ? awayTeamData.restDays : 7
     },
     predictedScore: data.predictedScore || { home: 0, away: 0 },
-    actualScore: (data.actualScore && typeof data.actualScore.home === 'number' && typeof data.actualScore.away === 'number') 
-      ? { home: data.actualScore.home, away: data.actualScore.away } 
-      : undefined,
+    actualScore: data.actualScore,
     drawProbability: drawProb,
     exactScores: Array.isArray(data.exactScores) ? data.exactScores : [],
     lineups: lineups,
     analysisText: data.analysisText || "Análise indisponível.",
-    bettingTip: data.bettingTip || "Sem sugestão definida.",
+    bettingTip: data.bettingTip || "Sem sugestão.",
     bettingTipCode: data.bettingTipCode || "",
-    weather: data.weather || { condition: "Desconhecido", temp: "--", probability: "", location: "Estádio", pitchType: "Desconhecido" }
+    weather: data.weather || { condition: "Desconhecido", temp: "--", probability: "", location: "Estádio", pitchType: "Desconhecido" },
+    referee: data.referee || { name: "Não informado", style: "Neutro", avgCards: 0 },
+    marketConsensus: data.marketConsensus || ""
   };
 };
 
 export const runSimulation = async (input: MatchInput): Promise<SimulationResult> => {
-  if (!process.env.API_KEY) {
-    throw new Error("API_KEY not found in environment variables.");
-  }
+  if (!process.env.API_KEY) throw new Error("API_KEY not found.");
 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
   const prompt = `
-    Atue como um analista de dados esportivos sênior.
-    Tarefa: Analisar e simular o jogo entre **${input.homeTeamName}** (Casa) e **${input.awayTeamName}** (Fora).
-    Data do jogo: ${input.date}.
-    Mood: ${input.homeTeamName} (${input.homeMood}), ${input.awayTeamName} (${input.awayMood}).
+    Analista esportivo. Jogo: **${input.homeTeamName}** vs **${input.awayTeamName}**.
+    Data: ${input.date}.
+    Obs: "${input.observations || ""}".
     
-    *** CONFIGURAÇÃO DE ESTRATÉGIA: ***
-    PERFIL DE RISCO: **${input.riskLevel}**.
-    CONTEXTO EXTRA: "${input.observations || "Nenhuma observação extra."}"
-
-    INSTRUÇÕES DE PESQUISA AVANÇADA (Google Search):
-    1. **Previsão do Tempo e LOCAL (CRUCIAL):** 
-       - Identifique o estádio.
-       - **TIPO DE GRAMADO (IMPORTANTE):** O gramado é NATURAL ou SINTÉTICO?
-       - Verifique se o Time Visitante tem histórico ruim jogando em gramados sintéticos (caso o estádio seja sintético). Se sim, aumente a probabilidade do Mandante.
-       - Busque a previsão do tempo exata.
-
-    2. **Aproveitamento e Estatísticas:** Pesquise o desempenho recente.
-    3. **ESCALAÇÕES E DESFALQUES (CRÍTICO - PRIORIDADE MÁXIMA):**
-       - Pesquise ativamente por: "Desfalques ${input.homeTeamName} hoje", "Lista de relacionados ${input.homeTeamName}", "Lesionados ${input.awayTeamName}".
-       - **VERIFICAÇÃO DE LESÃO:** Se houver notícias de que um jogador chave está lesionado (Ex: Goleiro titular, Artilheiro), **NÃO O ESCALE**.
-       - Monte o 'lineups' com os 11 que realmente devem ir a campo baseados nas notícias das últimas 24h.
-    
-    4. **ANÁLISE DE JOGO AÉREO E BOLA PARADA (NOVO):**
-       - Analise a altura média e força aérea.
-
-    Retorne JSON ESTRITO com:
-    - Probabilidades ajustadas (Considerando Fator Gramado e Desfalques).
-    - 5 Placares exatos prováveis.
-    - **weather**: { "condition": "...", "temp": "...", "probability": "...", "location": "Estádio", "pitchType": "Natural/Sintético" }
-    - **homeTeam.statsText**: Frase resumindo o aproveitamento.
-    - **awayTeam.statsText**: Frase resumindo o aproveitamento.
-    - **homeTeam.aerialAttackRating**: 0-100.
-    - **homeTeam.aerialDefenseRating**: 0-100.
-    - **awayTeam.aerialAttackRating**: 0-100.
-    - **awayTeam.aerialDefenseRating**: 0-100.
-    - **actualScore**: { "home": n, "away": n } (Se jogo já ocorreu).
-    - **lineups**: { "home": [...], "away": [...] }.
-    - **bettingTip** e **bettingTipCode**.
-    - **analysisText**: Texto rico explicando o prognóstico, mencionando O GRAMADO (se isso influencia) e desfalques.
-
-    CRITICAL CONSISTENCY CHECK:
-    O 'bettingTipCode' DEVE corresponder EXATAMENTE ao time mencionado em 'bettingTip'.
-
-    Exemplo JSON:
-    \`\`\`json
-    {
-      "homeTeam": { "winProbability": 50, "statsText": "Forte no sintético", "aerialAttackRating": 85, "aerialDefenseRating": 60 },
-      "awayTeam": { "winProbability": 20, "statsText": "Não vence fora há 3 jogos", "aerialAttackRating": 40, "aerialDefenseRating": 45 },
-      "weather": { "condition": "Chuva Forte", "temp": "22°C", "probability": "90%", "location": "Allianz Parque", "pitchType": "Sintético" },
-      "predictedScore": { "home": 2, "away": 0 },
-      "bettingTip": "Vitória do Mandante",
-      "bettingTipCode": "1",
-      "lineups": { "home": ["Player 1", ...], "away": ["Player A", ...] }
-    }
-    \`\`\`
+    PESQUISE (Se possível): Lesões, Clima, Arbitragem, Odds.
+    Se não conseguir pesquisar, use estatísticas históricas.
+    Retorne JSON (Single Match Structure).
   `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-      },
-    });
+      config: { tools: [{ googleSearch: {} }] },
+    }), 2, 2000); 
 
-    const text = response.text || "";
-    const parsedData = parseGeminiResponse(text);
-    const sanitizedData = sanitizeSimulationResult(parsedData, input);
+    const parsedData = parseGeminiResponse(response.text || "");
+    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
+      ?.filter((c: any) => c.web?.uri).map((c: any) => ({ uri: c.web.uri, title: c.web.title })) || [];
+
+    return { ...sanitizeSimulationResult(parsedData, input), sources, matchDate: input.date };
     
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    const sources = groundingChunks
-      .filter((c: any) => c.web && c.web.uri && c.web.title)
-      .map((c: any) => ({ uri: c.web.uri, title: c.web.title }));
+  } catch (error: any) {
+    console.warn("Falha no Search Grounding. Tentando Fallback Offline...", error);
+    
+    try {
+        const fallbackResponse = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt + "\n\nIMPORTANTE: Atue apenas com seu conhecimento estatístico prévio. NÃO use ferramentas de busca.",
+        }), 3, 2000);
 
-    return {
-      ...sanitizedData,
-      sources,
-      matchDate: input.date
-    };
-
-  } catch (error) {
-    console.error("Simulation error:", error);
-    throw error;
+        const parsedData = parseGeminiResponse(fallbackResponse.text || "");
+        parsedData.marketConsensus = "Modo Offline (Estimativa Pura)";
+        parsedData.weather = { condition: "Estimado", temp: "--", probability: "", location: "Local do Jogo", pitchType: "Não verificado" };
+        
+        return { ...sanitizeSimulationResult(parsedData, input), sources: [], matchDate: input.date };
+    } catch (finalError) {
+        console.error("Simulation error fatal:", finalError);
+        throw finalError;
+    }
   }
 };
 
 export const runBatchSimulation = async (
   matches: BatchMatchInput[], 
-  riskLevel: RiskLevel = RiskLevel.MODERATE, 
+  riskLevel: RiskLevel = RiskLevel.MODERATE,
   observations: string = "",
   onProgress?: (current: number, total: number, message: string) => void
 ): Promise<BatchResultItem[]> => {
-  if (!process.env.API_KEY) {
-    throw new Error("API_KEY not found.");
-  }
+  if (!process.env.API_KEY) throw new Error("API_KEY not found.");
 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const results: BatchResultItem[] = [];
-  
-  // MUDANÇA: Processamento sequencial 1 a 1 para MÁXIMA PRECISÃO
-  for (let i = 0; i < matches.length; i++) {
-     const match = matches[i];
-     const currentMsg = `Analisando jogo ${i + 1} de ${matches.length}: ${match.homeTeam} x ${match.awayTeam}...`;
+  const CHUNK_SIZE = 5; 
+
+  for (let i = 0; i < matches.length; i += CHUNK_SIZE) {
+     const chunk = matches.slice(i, i + CHUNK_SIZE);
+     const currentMsg = `Processando bloco ${Math.floor(i/CHUNK_SIZE) + 1} de ${Math.ceil(matches.length/CHUNK_SIZE)} (Jogos ${i+1} a ${Math.min(i+CHUNK_SIZE, matches.length)})...`;
      
-     if (onProgress) {
-        onProgress(i + 1, matches.length, currentMsg);
-     }
+     if (onProgress) onProgress(i, matches.length, currentMsg);
+     
+     if (i > 0) await delay(2000);
 
+     const matchesList = chunk.map(m => `- ID ${m.id}: ${m.homeTeam} vs ${m.awayTeam} (${m.date})`).join('\n');
+     
      const prompt = `
-        Atue como especialista em probabilidades de futebol (Syndicate Bettor).
-        Analise o jogo: **${match.homeTeam} (Casa) vs ${match.awayTeam} (Fora)**.
-        Data: ${match.date}.
+        Analise estes jogos de futebol. Use estatística pura.
+        Obs Geral: "${observations}".
+
+        LISTA:
+        ${matchesList}
         
-        PERFIL DE RISCO: **${riskLevel}**.
-        OBSERVAÇÕES GERAIS: "${observations}".
-
-        *** MODO SIMULAÇÃO DE ESTRATÉGIA (BLIND TEST) ***
-        Mesmo que a data do jogo seja no passado, IGNORE O RESULTADO FINAL se você o souber.
-        Analise APENAS com base nos dados PRÉ-JOGO.
-
-        INSTRUÇÕES DE ALTA PRECISÃO (Search Grounding):
-        1. **MUST WIN:** Algum time precisa desesperadamente vencer?
-        2. **DESFALQUES RECENTES:** Pesquise "desfalques ${match.homeTeam}" e "desfalques ${match.awayTeam}" para HOJE.
-        3. **FATOR CASA/GRAMADO:** O time da casa é muito forte em seu estádio? O gramado é sintético?
-
-        Retorne JSON ÚNICO para este jogo:
-        {
-            "id": "${match.id}",
-            "homeTeam": "${match.homeTeam}",
-            "awayTeam": "${match.awayTeam}",
-            "homeWinProb": 45,
-            "drawProb": 30,
-            "awayWinProb": 25,
-            "summary": "Explicação detalhada em 1 frase.",
-            "bettingTip": "Seco no Mandante",
-            "bettingTipCode": "1",
-            "weatherText": "Nublado, 24°C",
-            "statsSummary": "Mandante invicto em casa"
-        }
+        Retorne APENAS um JSON ARRAY com formato:
+        [ { "id": "ID", "homeTeam": "A", "awayTeam": "B", "homeWinProb": n, "drawProb": n, "awayWinProb": n, "summary": "txt", "weatherText": "txt", "statsSummary": "txt" } ]
       `;
 
       try {
-        const response = await ai.models.generateContent({
+        const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
           model: "gemini-2.5-flash",
           contents: prompt,
-          config: {
-            tools: [{ googleSearch: {} }],
-          },
-        });
+          config: { tools: [{ googleSearch: {} }] },
+        }), 1, 2000);
 
-        const text = response.text || "";
-        const data = parseGeminiResponse(text);
-        
-        // Validação se é array ou objeto único
-        if (Array.isArray(data)) {
-           results.push(data[0]);
-        } else {
-           results.push(data);
-        }
+        const data = parseGeminiResponse(response.text || "");
+        processChunkData(data, results);
 
       } catch (error) {
-        console.error(`Error processing match ${match.id}:`, error);
-        results.push({
-           id: match.id,
-           homeTeam: match.homeTeam,
-           awayTeam: match.awayTeam,
-           homeWinProb: 33,
-           drawProb: 34,
-           awayWinProb: 33,
-           summary: "Erro na análise individual deste jogo.",
-           bettingTip: "Sem sugestão",
-           bettingTipCode: "1X2",
-           weatherText: "--",
-           statsSummary: "--"
-        });
+        console.warn(`Erro no bloco com Search. Tentando Fallback Offline...`);
+        try {
+            const fallbackResponse = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt + " ATENÇÃO: Use apenas conhecimento estatístico. Não pesquise na web.",
+            }));
+            const data = parseGeminiResponse(fallbackResponse.text || "");
+            processChunkData(data, results, true);
+        } catch (fallbackError) {
+             console.error(`Error processing chunk fallback:`, fallbackError);
+             chunk.forEach(m => {
+                results.push({
+                    id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam,
+                    homeWinProb: 33, drawProb: 34, awayWinProb: 33,
+                    summary: "Erro na análise (Falha Total).", bettingTip: "Erro", bettingTipCode: "1X2"
+                });
+            });
+        }
       }
   }
 
   return results;
 };
 
+function processChunkData(data: any, resultsArray: BatchResultItem[], isFallback = false) {
+    let chunkResults: any[] = [];
+    if (Array.isArray(data)) {
+        chunkResults = data;
+    } else if (data.matches && Array.isArray(data.matches)) {
+        chunkResults = data.matches;
+    } else {
+         chunkResults = [data];
+    }
+    
+    chunkResults.forEach(item => {
+       const h = Number(item.homeWinProb) || 33;
+       const d = Number(item.drawProb) || 34;
+       const a = Number(item.awayWinProb) || 33;
+
+       resultsArray.push({
+           id: item.id?.toString() || "0",
+           homeTeam: item.homeTeam || "Time A",
+           awayTeam: item.awayTeam || "Time B",
+           homeWinProb: h,
+           drawProb: d,
+           awayWinProb: a,
+           summary: (item.summary || "Análise estatística.") + (isFallback ? " (Est.)" : ""),
+           weatherText: item.weatherText,
+           statsSummary: item.statsSummary,
+           bettingTip: "", 
+           bettingTipCode: "" 
+       });
+    });
+}
+
 export const fetchLoteriaMatches = async (concurso: string): Promise<BatchMatchInput[]> => {
   if (!process.env.API_KEY) throw new Error("API_KEY not found.");
 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `
-    Pesquise na internet a lista oficial de jogos da Loteria Esportiva (Brasil) para o concurso número **${concurso}**.
-    Busque OBRIGATORIAMENTE o Placar Real se o jogo já aconteceu.
-    Retorne JSON ARRAY: [ { "homeTeam": "A", "awayTeam": "B", "date": "YYYY-MM-DD", "actualHomeScore": n, "actualAwayScore": n }, ... ]
-  `;
+  const prompt = `Loteca Concurso ${concurso}. Retorne JSON Array: [{ "homeTeam": "A", "awayTeam": "B", "date": "YYYY-MM-DD", "actualHomeScore": n, "actualAwayScore": n }]`;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
       config: { tools: [{ googleSearch: {} }] },
-    });
-    const text = response.text || "";
-    const rawData = parseGeminiResponse(text);
+    }));
+    const rawData = parseGeminiResponse(response.text || "");
     return rawData.map((item: any, index: number) => ({
       id: (index + 1).toString(),
       homeTeam: item.homeTeam || "",
@@ -334,44 +338,22 @@ export const fetchLoteriaMatches = async (concurso: string): Promise<BatchMatchI
       actualAwayScore: item.actualAwayScore
     }));
   } catch (error) {
-    console.error("Loteria fetch error:", error);
-    throw new Error("Não foi possível encontrar os jogos deste concurso.");
+    throw new Error("Erro ao buscar concurso. Tente novamente em 1 min.");
   }
 };
 
 export const fetchLoteriaPrizeInfo = async (concurso: string): Promise<LoteriaPrizeInfo> => {
   if (!process.env.API_KEY) throw new Error("API_KEY required");
-  
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `
-    Realize uma pesquisa detalhada sobre o **Resultado Oficial da Loteca concurso ${concurso}** (Loteria Esportiva Caixa).
-    
-    INFORMAÇÕES OBRIGATÓRIAS A EXTRAIR:
-    1. O concurso já foi apurado? (accumulated).
-    2. Quantos ganhadores para 14 acertos? Qual o valor exato do prêmio?
-    3. Quantos ganhadores para 13 acertos? Qual o valor exato do prêmio?
-    
-    Se acumulou, o número de ganhadores de 14 acertos é 0 e o valor deve indicar "ACUMULOU".
-    
-    Retorne este JSON exato:
-    {
-      "concurso": "${concurso}",
-      "prize14": "R$ Valor ou ACUMULOU",
-      "winners14": número (int),
-      "prize13": "R$ Valor",
-      "winners13": número (int),
-      "accumulated": boolean
-    }
-  `;
+  const prompt = `Resultado Loteca ${concurso}. JSON: { "prize14": "valor", "winners14": n, "prize13": "valor", "winners13": n, "accumulated": bool }`;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
       config: { tools: [{ googleSearch: {} }] },
-    });
-    const text = response.text || "";
-    const data = parseGeminiResponse(text);
+    }));
+    const data = parseGeminiResponse(response.text || "");
     return {
       concurso: data.concurso || concurso,
       prize14: data.prize14 || "Aguardando...",
@@ -390,30 +372,29 @@ export const checkMatchResults = async (matches: BatchMatchInput[]): Promise<Bat
   
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const updatedMatches: BatchMatchInput[] = [];
-  const CHUNK_SIZE = 5;
+  const CHUNK_SIZE = 5; 
 
   const processChunk = async (chunkMatches: BatchMatchInput[]): Promise<BatchMatchInput[]> => {
-      const matchesList = chunkMatches.map(m => `- ID: ${m.id} | ${m.homeTeam} vs ${m.awayTeam} (${m.date})`).join('\n');
-      const prompt = `
-        Pesquise PLACAR FINAL (Real Result) de cada jogo abaixo.
-        Jogos: ${matchesList}
-        Retorne JSON ARRAY: [{ "id": "ID", "actualHomeScore": 2, "actualAwayScore": 1 }, ...]
-      `;
+      const list = chunkMatches.map(m => `${m.homeTeam} vs ${m.awayTeam} (${m.date})`).join(', ');
+      const prompt = `Placares reais para: ${list}. Retorne JSON Array: [{ "id": "1", "actualHomeScore": n, "actualAwayScore": n }]`;
 
       try {
-        const response = await ai.models.generateContent({
+        const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
           model: "gemini-2.5-flash",
           contents: prompt,
           config: { tools: [{ googleSearch: {} }] },
-        });
-        const text = response.text || "";
-        const resultsData = parseGeminiResponse(text);
-        return chunkMatches.map(match => {
-          const found = resultsData.find((r: any) => r.id === match.id);
-          if (found && typeof found.actualHomeScore === 'number' && typeof found.actualAwayScore === 'number') {
-            return { ...match, actualHomeScore: found.actualHomeScore, actualAwayScore: found.actualAwayScore };
-          }
-          return match;
+        }));
+        const resultsData = parseGeminiResponse(response.text || "");
+        
+        return chunkMatches.map(m => {
+           const found = Array.isArray(resultsData) ? resultsData.find((r: any) => 
+             r.id == m.id || r.homeTeam?.includes(m.homeTeam)
+           ) : null;
+
+           if (found && typeof found.actualHomeScore === 'number') {
+             return { ...m, actualHomeScore: found.actualHomeScore, actualAwayScore: found.actualAwayScore };
+           }
+           return m;
         });
       } catch (error) {
         return chunkMatches;
@@ -421,9 +402,137 @@ export const checkMatchResults = async (matches: BatchMatchInput[]): Promise<Bat
   };
 
   for (let i = 0; i < matches.length; i += CHUNK_SIZE) {
+      if (i > 0) await delay(3000);
       const chunk = matches.slice(i, i + CHUNK_SIZE);
       const processedChunk = await processChunk(chunk);
       updatedMatches.push(...processedChunk);
   }
   return updatedMatches;
+};
+
+export const runHistoricalBacktest = async (
+  startDraw: number, 
+  endDraw: number,
+  onProgress: (message: string) => void
+): Promise<HistoricalDrawStats[]> => {
+  return []; 
+};
+
+// --- VAR ANALYSIS FEATURE ---
+
+export const findMatchesByYear = async (teamA: string, teamB: string, year: string): Promise<MatchCandidate[]> => {
+  if (!process.env.API_KEY) throw new Error("API_KEY required");
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+  const prompt = `
+    Liste todos os jogos oficiais de futebol entre **${teamA}** e **${teamB}** ocorridos no ano de **${year}**.
+    Ignore amistosos se houver jogos oficiais.
+    
+    RETORNE APENAS UM JSON ARRAY:
+    [
+      {
+        "date": "YYYY-MM-DD",
+        "homeTeam": "Nome Time Mandante",
+        "awayTeam": "Nome Time Visitante",
+        "score": "Placar Final (ex: 2-1)",
+        "competition": "Nome do Campeonato (ex: Brasileirão, Copa do Brasil)"
+      }
+    ]
+  `;
+
+  try {
+     const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: { tools: [{ googleSearch: {} }] },
+     }), 2, 2000);
+
+     const parsedData = parseGeminiResponse(response.text || "");
+     if (Array.isArray(parsedData)) {
+        return parsedData;
+     }
+     return [];
+  } catch (e) {
+     console.error("Error finding matches", e);
+     throw new Error("Erro ao buscar jogos. Verifique os times e o ano.");
+  }
+};
+
+export const runVarAnalysis = async (home: string, away: string, date: string): Promise<VarAnalysisResult> => {
+   if (!process.env.API_KEY) throw new Error("API_KEY required");
+   
+   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+   
+   const prompt = `
+     Atue como um especialista em arbitragem de futebol.
+     Analise a arbitragem do jogo: **${home} vs ${away}** realizado em ${date}.
+     
+     TAREFAS:
+     1. Pesquise "polêmicas de arbitragem", "erros de arbitragem", "VAR", "Central do Apito".
+     2. Procure opiniões de comentaristas (PC Oliveira, Sálvio Spínola, etc).
+     
+     RETORNE SOMENTE RAW JSON (sem markdown):
+     {
+       "match": "${home} x ${away}",
+       "date": "${date}",
+       "referee": "Nome do Árbitro",
+       "refereeGrade": number (0-10),
+       "summary": "Resumo (Texto curto)",
+       "incidents": [
+         {
+           "minute": "35' 1T",
+           "description": "Lance",
+           "expertOpinion": "Opinião",
+           "verdict": "CORRECT" | "ERROR" | "CONTROVERSIAL"
+         }
+       ]
+     }
+   `;
+   
+   try {
+      const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: { tools: [{ googleSearch: {} }] }, // Essencial: Search ativado
+      }), 2, 2000);
+      
+      const parsedData = parseGeminiResponse(response.text || "");
+      const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
+        ?.filter((c: any) => c.web?.uri).map((c: any) => ({ uri: c.web.uri, title: c.web.title })) || [];
+        
+      return {
+         match: parsedData.match || `${home} x ${away}`,
+         date: parsedData.date || date,
+         referee: parsedData.referee || "Não identificado",
+         refereeGrade: typeof parsedData.refereeGrade === 'number' ? parsedData.refereeGrade : 5,
+         summary: parsedData.summary || "Sem dados suficientes sobre a arbitragem.",
+         incidents: Array.isArray(parsedData.incidents) ? parsedData.incidents : [],
+         sources
+      };
+      
+   } catch (e) {
+     console.warn("VAR Analysis - Search Failed, trying fallback...", e);
+     
+     // Fallback para conhecimento interno sem pesquisa
+     try {
+         const fallbackResponse = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+             model: "gemini-2.5-flash",
+             contents: prompt + " IMPORTANTE: Use seu conhecimento histórico interno. NÃO pesquise na web.",
+         }), 2, 2000);
+         
+         const parsedData = parseGeminiResponse(fallbackResponse.text || "");
+         return {
+            match: parsedData.match || `${home} x ${away}`,
+            date: parsedData.date || date,
+            referee: parsedData.referee || "Não identificado",
+            refereeGrade: typeof parsedData.refereeGrade === 'number' ? parsedData.refereeGrade : 5,
+            summary: parsedData.summary || "Análise baseada em histórico (Modo Offline).",
+            incidents: Array.isArray(parsedData.incidents) ? parsedData.incidents : [],
+            sources: []
+         };
+     } catch (finalError) {
+         console.error("Fatal VAR Error", finalError);
+         throw new Error("Não foi possível analisar a arbitragem deste jogo. Verifique se a data está correta ou se o jogo já ocorreu.");
+     }
+   }
 };

@@ -6,9 +6,25 @@ import { Shield, Target, Zap, PieChart, Flame } from 'lucide-react';
 interface RiskSelectorProps {
   value: RiskLevel;
   onChange: (level: RiskLevel) => void;
+  scores?: Record<string, number> | null; // Novo: Recebe pontuação por nível
+  totalPoints?: number; // Total possível de pontos
 }
 
-const RiskSelector: React.FC<RiskSelectorProps> = ({ value, onChange }) => {
+const RiskSelector: React.FC<RiskSelectorProps> = ({ value, onChange, scores, totalPoints }) => {
+  
+  const getScoreBadge = (level: string) => {
+    if (!scores || scores[level] === undefined || !totalPoints) return null;
+    const score = scores[level];
+    const isGood = score >= 13;
+    const isMedium = score >= 10 && score < 13;
+    
+    return (
+       <div className={`mt-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${isGood ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50' : isMedium ? 'bg-blue-500/20 text-blue-400 border-blue-500/50' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
+         {score}/{totalPoints}
+       </div>
+    );
+  };
+
   return (
     <div className="w-full">
       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 block text-center md:text-left">
@@ -33,6 +49,7 @@ const RiskSelector: React.FC<RiskSelectorProps> = ({ value, onChange }) => {
           <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-wide truncate w-full text-center ${value === RiskLevel.CONSERVATIVE ? 'text-emerald-300' : 'text-slate-500'}`}>
             Conservador
           </span>
+          {getScoreBadge(RiskLevel.CONSERVATIVE)}
           {value === RiskLevel.CONSERVATIVE && (
              <span className="absolute -top-1.5 -right-1.5 bg-emerald-500 text-slate-950 text-[8px] font-bold px-1.5 py-0.5 rounded-full">ATIVO</span>
           )}
@@ -53,6 +70,7 @@ const RiskSelector: React.FC<RiskSelectorProps> = ({ value, onChange }) => {
           <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-wide truncate w-full text-center ${value === RiskLevel.CALCULATED ? 'text-cyan-300' : 'text-slate-500'}`}>
             Calculado
           </span>
+           {getScoreBadge(RiskLevel.CALCULATED)}
            {value === RiskLevel.CALCULATED && (
              <span className="absolute -top-1.5 -right-1.5 bg-cyan-500 text-slate-950 text-[8px] font-bold px-1.5 py-0.5 rounded-full">ATIVO</span>
           )}
@@ -73,6 +91,7 @@ const RiskSelector: React.FC<RiskSelectorProps> = ({ value, onChange }) => {
           <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-wide truncate w-full text-center ${value === RiskLevel.MODERATE ? 'text-amber-300' : 'text-slate-500'}`}>
             Moderado
           </span>
+           {getScoreBadge(RiskLevel.MODERATE)}
            {value === RiskLevel.MODERATE && (
              <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-slate-950 text-[8px] font-bold px-1.5 py-0.5 rounded-full">ATIVO</span>
           )}
@@ -93,6 +112,7 @@ const RiskSelector: React.FC<RiskSelectorProps> = ({ value, onChange }) => {
           <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-wide truncate w-full text-center ${value === RiskLevel.AGGRESSIVE ? 'text-orange-300' : 'text-slate-500'}`}>
             Agressivo
           </span>
+           {getScoreBadge(RiskLevel.AGGRESSIVE)}
            {value === RiskLevel.AGGRESSIVE && (
              <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-slate-950 text-[8px] font-bold px-1.5 py-0.5 rounded-full">ATIVO</span>
           )}
@@ -113,6 +133,7 @@ const RiskSelector: React.FC<RiskSelectorProps> = ({ value, onChange }) => {
           <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-wide truncate w-full text-center ${value === RiskLevel.BOLD ? 'text-purple-300' : 'text-slate-500'}`}>
             Ousado
           </span>
+           {getScoreBadge(RiskLevel.BOLD)}
            {value === RiskLevel.BOLD && (
              <span className="absolute -top-1.5 -right-1.5 bg-purple-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">ATIVO</span>
           )}

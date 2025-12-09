@@ -1,15 +1,21 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MatchInput, TeamMood, SimulationResult, RiskLevel } from './types';
 import MoodSelector from './components/MoodSelector';
 import ResultView from './components/ResultView';
 import BatchMode from './components/BatchMode';
+import HistoryMode from './components/HistoryMode'; 
+import VarMode from './components/VarMode'; // Import
 import RiskSelector from './components/RiskSelector';
 import { runSimulation } from './services/geminiService';
-import { Loader2, Calendar, Search, Layers, Activity, Trophy, MessageSquare } from 'lucide-react';
+import { authService } from './services/authService'; // Import Auth
+import { Loader2, Calendar, Search, Layers, Activity, Trophy, MessageSquare, History, MonitorPlay, LogOut, User } from 'lucide-react';
+import LoginScreen from './components/LoginScreen';
 
 const App: React.FC = () => {
-  const [mode, setMode] = useState<'single' | 'batch'>('single');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<string>('');
+  const [mode, setMode] = useState<'single' | 'batch' | 'history' | 'var'>('single');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +29,28 @@ const App: React.FC = () => {
     observations: '',
     riskLevel: RiskLevel.MODERATE,
   });
+
+  // Check Session on Mount
+  useEffect(() => {
+    const sessionUser = authService.checkSession();
+    if (sessionUser) {
+      setCurrentUser(sessionUser);
+      setIsAuthenticated(true);
+    }
+  }, []);
+
+  const handleLogout = () => {
+    authService.logout();
+    setIsAuthenticated(false);
+    setCurrentUser('');
+    setResult(null);
+  };
+
+  const handleLoginSuccess = () => {
+    const user = authService.checkSession();
+    if (user) setCurrentUser(user);
+    setIsAuthenticated(true);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,16 +74,20 @@ const App: React.FC = () => {
     setError(null);
   };
 
+  if (!isAuthenticated) {
+    return <LoginScreen onLogin={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen text-slate-100 font-sans selection:bg-emerald-500 selection:text-white pb-12">
       {/* Sports Broadcast Header */}
       <header className="bg-slate-900/80 border-b border-slate-800 sticky top-0 z-50 backdrop-blur-md shadow-lg">
-        <div className="max-w-5xl mx-auto px-4 h-20 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-2.5 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.3)] border border-emerald-400/20">
               <Trophy size={24} className="text-white" />
             </div>
-            <div>
+            <div className="hidden sm:block">
               <h1 className="text-2xl font-black italic tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 font-display uppercase">
                 SportSim <span className="text-emerald-500">Pro</span>
               </h1>
@@ -64,36 +96,74 @@ const App: React.FC = () => {
           </div>
           
           {/* Tabs - Pill Shape */}
-          <div className="flex bg-slate-950/50 p-1.5 rounded-full border border-slate-800 shadow-inner">
+          <div className="flex bg-slate-950/50 p-1.5 rounded-full border border-slate-800 shadow-inner overflow-x-auto max-w-[200px] md:max-w-none no-scrollbar">
             <button
               onClick={() => { setMode('single'); handleReset(); }}
-              className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-bold transition-all duration-300 ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-all duration-300 whitespace-nowrap ${
                 mode === 'single' 
                   ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/50' 
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
-              <Activity size={16} /> <span className="hidden sm:inline">Partida Única</span>
+              <Activity size={14} /> <span className="hidden md:inline">Partida Única</span>
             </button>
             <button
               onClick={() => { setMode('batch'); handleReset(); }}
-              className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-bold transition-all duration-300 ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-all duration-300 whitespace-nowrap ${
                 mode === 'batch' 
                   ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/50' 
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
-              <Layers size={16} /> <span className="hidden sm:inline">Loteria / Lote</span>
+              <Layers size={14} /> <span className="hidden md:inline">Loteria</span>
             </button>
+            <button
+              onClick={() => { setMode('history'); handleReset(); }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-all duration-300 whitespace-nowrap ${
+                mode === 'history' 
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/50' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <History size={14} /> <span className="hidden md:inline">Histórico</span>
+            </button>
+            <button
+              onClick={() => { setMode('var'); handleReset(); }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-all duration-300 whitespace-nowrap ${
+                mode === 'var' 
+                  ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/50' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <MonitorPlay size={14} /> <span className="hidden md:inline">VAR</span>
+            </button>
+          </div>
+
+          {/* User Profile / Logout */}
+          <div className="flex items-center gap-3 ml-2">
+             <div className="hidden md:flex items-center gap-2 text-right">
+                <div className="text-xs font-bold text-white">{currentUser}</div>
+             </div>
+             <button 
+               onClick={handleLogout}
+               className="bg-slate-800 hover:bg-red-500/20 hover:text-red-400 p-2 rounded-lg transition-colors border border-slate-700"
+               title="Sair"
+             >
+                <LogOut size={18} />
+             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-8">
+      <main className="max-w-6xl mx-auto px-4 py-8">
         
-        {mode === 'batch' ? (
-          <BatchMode />
-        ) : (
+        {mode === 'batch' && <BatchMode />}
+        
+        {mode === 'history' && <HistoryMode />}
+        
+        {mode === 'var' && <VarMode />}
+        
+        {mode === 'single' && (
           /* Single Match Logic */
           !result ? (
             <div className="max-w-xl mx-auto animate-fade-in-up">
@@ -144,9 +214,10 @@ const App: React.FC = () => {
                       <input
                         type="date"
                         required
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all text-sm font-medium cursor-pointer"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all text-sm font-medium cursor-pointer [color-scheme:dark]"
                         value={input.date}
                         onChange={(e) => setInput({ ...input, date: e.target.value })}
+                        onFocus={(e) => e.target.showPicker()}
                         onClick={(e) => {
                           try {
                             e.currentTarget.showPicker();

@@ -7,36 +7,37 @@ export enum TeamMood {
 
 export enum RiskLevel {
   CONSERVATIVE = 'Conservador',
-  CALCULATED = 'Calculado', // Novo: Entre Conservador e Moderado
+  CALCULATED = 'Calculado', 
   MODERATE = 'Moderado',
-  AGGRESSIVE = 'Agressivo', // Novo: Entre Moderado e Ousado
+  AGGRESSIVE = 'Agressivo', 
   BOLD = 'Ousado',
 }
 
 export interface PlayerStats {
   name: string;
   position: string;
-  rating: number; // 0-10
-  condition?: string; // e.g., "Fit", "Injured", "Returning"
+  rating: number; 
+  condition?: string; 
 }
 
 export interface ExactScore {
-  score: string; // e.g., "2-1"
-  probability: number; // 0-100
+  score: string; 
+  probability: number; 
 }
 
 export interface TeamAnalysis {
   name: string;
-  winProbability: number; // 0-100
+  winProbability: number; 
   mood: TeamMood;
-  attackRating: number; // 0-100
-  defenseRating: number; // 0-100
-  possessionEst: number; // 0-100
-  aerialAttackRating?: number; // Novo: Força no jogo aéreo ofensivo (0-100)
-  aerialDefenseRating?: number; // Novo: Força no jogo aéreo defensivo (0-100)
+  attackRating: number; 
+  defenseRating: number; 
+  possessionEst: number; 
+  aerialAttackRating?: number; 
+  aerialDefenseRating?: number; 
   keyPlayers: PlayerStats[];
-  recentForm: string[]; // e.g., ["W", "D", "L", "W", "W"]
-  statsText?: string; // Novo: Texto de aproveitamento (ex: "80% de vitórias em casa")
+  recentForm: string[]; 
+  statsText?: string; 
+  restDays?: number; 
 }
 
 export interface Lineups {
@@ -45,11 +46,17 @@ export interface Lineups {
 }
 
 export interface WeatherInfo {
-  condition: string; // "Chuvoso", "Ensolarado", "Nublado"
-  temp: string; // "24°C"
-  probability: string; // "60% chuva"
-  location: string; // "Maracanã, Rio de Janeiro"
-  pitchType?: string; // Novo: "Natural", "Sintético", "Híbrido"
+  condition: string; 
+  temp: string; 
+  probability: string; 
+  location: string; 
+  pitchType?: string; 
+}
+
+export interface RefereeInfo {
+  name: string;
+  style: string; 
+  avgCards: number; 
 }
 
 export interface SimulationResult {
@@ -59,7 +66,7 @@ export interface SimulationResult {
     home: number;
     away: number;
   };
-  actualScore?: { // Placar real caso o jogo já tenha ocorrido
+  actualScore?: { 
     home: number;
     away: number;
   };
@@ -69,9 +76,11 @@ export interface SimulationResult {
   analysisText: string;
   sources: { uri: string; title: string }[];
   matchDate: string;
-  bettingTip: string; // Texto descritivo da sugestão
-  bettingTipCode: string; // Código para validação: '1', 'X', '2', '1X', 'X2', '12', 'ALL'
-  weather?: WeatherInfo; // Novo campo de clima
+  bettingTip: string; 
+  bettingTipCode: string; 
+  weather?: WeatherInfo; 
+  referee?: RefereeInfo; 
+  marketConsensus?: string; 
 }
 
 export interface MatchInput {
@@ -84,14 +93,13 @@ export interface MatchInput {
   riskLevel: RiskLevel;
 }
 
-// Interfaces para o modo em lote
 export interface BatchMatchInput {
   id: string;
   homeTeam: string;
   awayTeam: string;
   date: string;
-  actualHomeScore?: number; // Placar real (se o jogo já ocorreu)
-  actualAwayScore?: number; // Placar real
+  actualHomeScore?: number; 
+  actualAwayScore?: number; 
 }
 
 export interface BatchResultItem {
@@ -101,18 +109,56 @@ export interface BatchResultItem {
   homeWinProb: number;
   drawProb: number;
   awayWinProb: number;
-  summary: string; // Breve justificativa
-  bettingTip: string; // Sugestão de aposta (Seco, Duplo, Triplo)
-  bettingTipCode: string; // Código para validação: '1', 'X', '2', '1X', 'X2', '12', 'ALL'
-  weatherText?: string; // Novo: Ex: "Chuva, 22°C"
-  statsSummary?: string; // Novo: Ex: "Mandante venceu 4 dos últimos 5"
+  summary: string; 
+  weatherText?: string; 
+  statsSummary?: string; 
+  
+  bettingTip: string; 
+  bettingTipCode: string; 
+
+  strategies?: Record<string, { tip: string; code: string }>;
 }
 
 export interface LoteriaPrizeInfo {
   concurso: string;
-  prize14: string; // Ex: "R$ 1.500.000,00"
+  prize14: string; 
   winners14: number;
   prize13: string;
   winners13: number;
   accumulated: boolean;
+}
+
+export interface HistoricalDrawStats {
+  concurso: string;
+  date: string;
+  totalGames: number;
+  scores: Record<RiskLevel, number>; 
+  bestStrategy: RiskLevel;
+}
+
+// VAR MODE TYPES
+export interface VarIncident {
+  minute: string;
+  description: string;
+  expertOpinion: string; // Opinião da crítica (Ex: PC Oliveira disse que foi pênalti)
+  verdict: 'CORRECT' | 'ERROR' | 'CONTROVERSIAL'; // Veredito final
+  videoRef?: string; // Opcional: Link para vídeo se tiver
+}
+
+export interface VarAnalysisResult {
+  match: string;
+  date: string;
+  referee: string;
+  refereeGrade: number; // Nota de 0 a 10 baseada na crítica
+  summary: string;
+  incidents: VarIncident[];
+  sources: { title: string; uri: string }[];
+}
+
+export interface MatchCandidate {
+  date: string;
+  homeTeam: string;
+  awayTeam: string;
+  score: string;
+  competition: string;
 }
