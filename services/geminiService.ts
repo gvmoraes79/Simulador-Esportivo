@@ -447,28 +447,33 @@ export const runVarAnalysis = async (home: string, away: string, date: string): 
    if (!currentKey) throw new Error("API Key ausente.");
    const ai = new GoogleGenAI({ apiKey: currentKey });
    
-   // CORREÇÃO: Prompt Estruturado Rigorosamente
+   // ATUALIZAÇÃO DO PROMPT: Busca estruturada por informações específicas
    const prompt = `
-     Analise a arbitragem do jogo de futebol: **${home}** vs **${away}** (Data: ${date}).
-     Pesquise por polêmicas de arbitragem, VAR, cartões vermelhos e pênaltis.
+     Atue como um analista de arbitragem sênior.
+     Tarefa: Analisar a arbitragem de **${home}** vs **${away}** (Data: ${date}).
      
-     Retorne APENAS um JSON válido com este formato exato:
+     1. PRIMEIRO, pesquise pela "Ficha Técnica" do jogo para encontrar o NOME DO ÁRBITRO.
+     2. SEGUNDO, pesquise por notícias sobre "polêmicas de arbitragem", "VAR", "pênaltis" ou "expulsões" neste jogo.
+     3. TERCEIRO, procure por opiniões de comentaristas de arbitragem (ex: Central do Apito, PC Oliveira, Renata Ruel, etc) sobre os lances.
+     
+     Se não houver polêmicas, relate que a arbitragem foi tranquila.
+     
+     Retorne APENAS um JSON válido seguindo estritamente este formato:
      {
        "match": "${home} x ${away}",
        "date": "${date}",
-       "referee": "Nome do Árbitro (ou 'Desconhecido')",
-       "refereeGrade": 5.0,
-       "summary": "Resumo da atuação da arbitragem...",
+       "referee": "Nome Completo do Árbitro",
+       "refereeGrade": 0.0 a 10.0 (baseado na crítica: 10 = perfeito, <5 = erros graves),
+       "summary": "Resumo detalhado da atuação. Cite se houve interferência do VAR. Cite o nome dos comentaristas se encontrar opiniões.",
        "incidents": [
          {
-           "minute": "45'",
-           "description": "Descrição do lance...",
-           "expertOpinion": "Opinião da crítica especializada...",
-           "verdict": "CORRECT" 
+           "minute": "Ex: 45+2' ou '2T'",
+           "description": "Descrição clara do lance (ex: Pênalti não marcado em Gabigol)",
+           "expertOpinion": "O que a mídia/especialistas disseram? (Ex: 'PC Oliveira afirmou que houve toque')",
+           "verdict": "CORRECT" | "ERROR" | "CONTROVERSIAL"
          }
        ]
      }
-     Nota: verdict deve ser "CORRECT", "ERROR" ou "CONTROVERSIAL". Se não houver incidentes, retorne "incidents": [].
    `;
    
    try {
