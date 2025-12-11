@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Lock, ShieldCheck, UserPlus, LogIn, Key, AlertTriangle, CheckCircle2, Edit2 } from 'lucide-react';
+import { Lock, ShieldCheck, UserPlus, LogIn, Key, AlertTriangle, CheckCircle2, Edit2, Trash2 } from 'lucide-react';
 import { authService } from '../services/authService';
-import { getApiKey } from '../services/geminiService'; // Importando a fonte da verdade
+import { getApiKey } from '../services/geminiService';
 
 interface LoginScreenProps {
   onLogin: () => void;
@@ -22,21 +22,30 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Verifica se já existe chave ao carregar usando o Service central
-  useEffect(() => {
+  const checkKey = () => {
      const currentKey = getApiKey();
      
      if (currentKey) {
         setHasKeyConfigured(true);
         setIsEditingKey(false); 
-        // Ocultar a chave real por segurança, apenas mostrar placeholder se quiser
         setApiKey(currentKey); 
      } else {
         setHasKeyConfigured(false);
-        setIsEditingKey(true); // FORÇA A ABERTURA SE NÃO TIVER CHAVE
+        setIsEditingKey(true); 
         setApiKey('');
      }
+  };
+
+  useEffect(() => {
+     checkKey();
   }, []);
+
+  const handleForceReset = () => {
+      if(confirm("Isso apagará todas as configurações e chaves salvas neste dispositivo. Continuar?")) {
+          localStorage.clear();
+          window.location.reload();
+      }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,7 +57,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       return;
     }
 
-    // Validação rigorosa da API Key antes de logar
     const keyToSave = apiKey.trim();
     const currentValidKey = getApiKey();
 
@@ -58,12 +66,20 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
        return;
     }
 
-    // Se digitou uma nova chave, salva
-    if (keyToSave && keyToSave.length > 20) {
+    if (!keyToSave && !currentValidKey) {
+       setError('Insira uma chave API válida.');
+       return;
+    }
+
+    // Validação de formato da chave (Google Keys começam com AIza)
+    if (keyToSave && !keyToSave.startsWith('AIza')) {
+       setError('Chave inválida! Chaves do Gemini devem começar com "AIza".');
+       return;
+    }
+
+    // Se digitou uma nova chave válida, salva
+    if (keyToSave && keyToSave.startsWith('AIza')) {
         localStorage.setItem('sportsim_api_key', keyToSave);
-    } else if (keyToSave && keyToSave.length <= 20) {
-        setError('A chave API parece inválida (muito curta).');
-        return;
     }
 
     if (isRegistering) {
@@ -126,7 +142,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                        </div>
                        <div>
                           <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Status da API</div>
-                          <div className="text-xs font-bold text-white">Chave Ativa</div>
+                          <div className="text-xs font-bold text-white">Chave Configurada</div>
                        </div>
                     </div>
                     <button 
@@ -143,7 +159,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                       <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-500"/>
                       <div>
                          <span className="font-bold block text-amber-400 uppercase tracking-wide text-[10px] mb-1">Passo 1: Configuração Obrigatória</span>
-                         <span>Cole sua Google Gemini API Key abaixo para liberar o acesso.</span>
+                         <span>Cole sua Google Gemini API Key abaixo. (Deve começar com "AIza")</span>
                       </div>
                    </div>
                    <div className="relative">
@@ -163,7 +179,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                         onClick={() => setIsEditingKey(false)}
                         className="text-[10px] text-slate-500 hover:text-white underline w-full text-right"
                       >
-                        Cancelar e usar chave salva
+                        Cancelar
                       </button>
                    )}
                 </div>
@@ -250,10 +266,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           </button>
         </form>
         
-        <div className="mt-8 text-center">
-           <p className="text-[10px] text-slate-600 font-mono">
-             Security Gateway v3.5 • Powered by Gemini
-           </p>
+        <div className="mt-8 text-center border-t border-slate-800 pt-4">
+             <button onClick={handleForceReset} className="text-[10px] text-red-500 hover:text-red-400 uppercase font-bold flex items-center gap-1 mx-auto hover:bg-red-950/30 px-3 py-1.5 rounded transition-colors">
+                 <Trash2 size={12} /> Limpeza de Emergência (Resetar App)
+             </button>
+             <p className="text-[9px] text-slate-600 font-mono mt-2">
+                 v2.1 Stable
+             </p>
         </div>
       </div>
     </div>
