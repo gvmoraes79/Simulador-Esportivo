@@ -12,20 +12,14 @@ export const getApiKey = (): string => {
   // 1. Tenta recuperar do LocalStorage
   if (typeof localStorage !== 'undefined') {
       const storedKey = localStorage.getItem('sportsim_api_key');
-      // Validação agressiva contra lixo no cache
-      if (storedKey && 
-          storedKey !== "null" && 
-          storedKey !== "undefined" && 
-          storedKey.trim().length > 20) { // Chaves Gemini são longas
-          key = storedKey.trim();
-      }
+      if (storedKey) key = storedKey.trim();
   }
 
-  // 2. Se não achou no storage, tenta ENV (apenas se for válida)
+  // 2. Se não achou no storage, tenta ENV
   if (!key) {
       try {
           const viteEnv = (import.meta as any).env;
-          if (viteEnv && viteEnv.VITE_API_KEY && viteEnv.VITE_API_KEY.length > 20) {
+          if (viteEnv && viteEnv.VITE_API_KEY) {
             key = viteEnv.VITE_API_KEY;
           }
       } catch (e) {
@@ -38,7 +32,19 @@ export const getApiKey = (): string => {
     key = process.env.API_KEY;
   }
   
-  return key;
+  // VALIDAÇÃO FINAL RIGOROSA
+  // Chaves do Google Gemini SEMPRE começam com "AIza"
+  if (key && key.startsWith("AIza") && key.length > 20) {
+      return key;
+  }
+
+  // Se chegou aqui, a chave é inválida ou não existe.
+  // Limpa o storage para garantir que o app não tente usar uma chave ruim.
+  if (typeof localStorage !== 'undefined' && localStorage.getItem('sportsim_api_key')) {
+      localStorage.removeItem('sportsim_api_key');
+  }
+  
+  return "";
 };
 
 // GLOBAL REQUEST MUTEX
@@ -200,7 +206,6 @@ const sanitizeSimulationResult = (data: any, input: MatchInput): any => {
 export const runSimulation = async (input: MatchInput): Promise<SimulationResult> => {
   const currentKey = getApiKey();
   
-  // MUDANÇA CRÍTICA: Mensagem de erro nova para forçar reconhecimento da versão
   if (!currentKey) throw new Error("⛔ ERRO CRÍTICO: Chave API não detectada. Por favor, reconfigure no menu de Login ou Configurações.");
 
   const ai = new GoogleGenAI({ apiKey: currentKey });
