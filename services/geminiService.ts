@@ -7,28 +7,38 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Obtém a API Key de forma segura e flexível (EXPORTADA PARA USO NO APP)
 export const getApiKey = (): string => {
-  // 1. Tenta recuperar do LocalStorage (Inserida pelo usuário na UI) - PRIORIDADE MÁXIMA
+  let key = "";
+
+  // 1. Tenta recuperar do LocalStorage
   if (typeof localStorage !== 'undefined') {
       const storedKey = localStorage.getItem('sportsim_api_key');
-      if (storedKey && storedKey.trim().length > 10) return storedKey.trim();
+      // Validação agressiva contra lixo no cache
+      if (storedKey && 
+          storedKey !== "null" && 
+          storedKey !== "undefined" && 
+          storedKey.trim().length > 20) { // Chaves Gemini são longas
+          key = storedKey.trim();
+      }
   }
 
-  // 2. Tenta formato Vite (Padrão para desenvolvimento local .env ou Vercel Environment Variables)
-  try {
-      const viteEnv = (import.meta as any).env;
-      if (viteEnv && viteEnv.VITE_API_KEY) {
-        return viteEnv.VITE_API_KEY;
+  // 2. Se não achou no storage, tenta ENV (apenas se for válida)
+  if (!key) {
+      try {
+          const viteEnv = (import.meta as any).env;
+          if (viteEnv && viteEnv.VITE_API_KEY && viteEnv.VITE_API_KEY.length > 20) {
+            key = viteEnv.VITE_API_KEY;
+          }
+      } catch (e) {
+          // Ignora
       }
-  } catch (e) {
-      // Ignora erro se import.meta não existir
+  }
+
+  // 3. Process env legacy
+  if (!key && typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+    key = process.env.API_KEY;
   }
   
-  // 3. Tenta formato Node/Process (Legado)
-  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-    return process.env.API_KEY;
-  }
-  
-  return "";
+  return key;
 };
 
 // GLOBAL REQUEST MUTEX
@@ -37,8 +47,6 @@ let requestQueue: Promise<any> = Promise.resolve();
 async function scheduleRequest<T>(operation: () => Promise<T>): Promise<T> {
   const nextRequest = requestQueue.then(async () => {
     try {
-      // Delay global para "resfriar" a API (Paciência Extrema)
-      // Reduzido levemente pois o modo Fallback lida com erros, melhorando UX
       await delay(1500); 
       return await operation();
     } catch (err) {
@@ -71,8 +79,7 @@ async function callWithRetry<T>(
       
       if (isRateLimit) {
         if (i < retries - 1) {
-          // Backoff longo para recuperar cota
-          const waitTime = initialDelay * Math.pow(2, i) + 70000; // +70s de segurança
+          const waitTime = initialDelay * Math.pow(2, i) + 70000; 
           console.warn(`⚠️ Cota da API (429). Esperando ${waitTime/1000}s...`);
           await delay(waitTime);
         } else {
@@ -90,19 +97,16 @@ const parseGeminiResponse = (text: string): any => {
   if (!text) throw new Error("Resposta da IA vazia.");
 
   try {
-    // 1. Limpeza agressiva de Markdown
     let cleanText = text
-      .replace(/```json/gi, '') // Remove ```json (case insensitive)
-      .replace(/```/g, '')      // Remove ``` restantes
+      .replace(/```json/gi, '') 
+      .replace(/```/g, '')      
       .trim();
 
-    // 2. Extração cirúrgica do objeto ou array JSON
     const firstBrace = cleanText.indexOf('{');
     const firstBracket = cleanText.indexOf('[');
     
     let startIndex = -1;
     
-    // Descobre se começa com { ou [
     if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
       startIndex = firstBrace;
     } else if (firstBracket !== -1) {
@@ -110,7 +114,6 @@ const parseGeminiResponse = (text: string): any => {
     }
 
     if (startIndex !== -1) {
-      // Encontra o final correspondente
       const lastBrace = cleanText.lastIndexOf('}');
       const lastBracket = cleanText.lastIndexOf(']');
       let endIndex = Math.max(lastBrace, lastBracket);
@@ -123,7 +126,6 @@ const parseGeminiResponse = (text: string): any => {
     return JSON.parse(cleanText);
   } catch (e) {
     console.error("JSON Parse Error. Raw text snippet:", text.substring(0, 200));
-    // Tenta uma última vez parsear direto caso a limpeza tenha falhado
     try {
         return JSON.parse(text);
     } catch (finalError) {
@@ -140,7 +142,6 @@ const sanitizeSimulationResult = (data: any, input: MatchInput): any => {
   let awayWinProb = typeof awayTeamData.winProbability === 'number' ? awayTeamData.winProbability : 33;
   let drawProb = typeof data.drawProbability === 'number' ? data.drawProbability : 34;
 
-  // Normalização
   let total = homeWinProb + awayWinProb + drawProb;
   if (total <= 0) total = 1; 
   homeWinProb = Math.round((homeWinProb / total) * 100);
@@ -198,7 +199,9 @@ const sanitizeSimulationResult = (data: any, input: MatchInput): any => {
 
 export const runSimulation = async (input: MatchInput): Promise<SimulationResult> => {
   const currentKey = getApiKey();
-  if (!currentKey) throw new Error("API Key não configurada. Use o botão de configurações (engrenagem) para inserir.");
+  
+  // MUDANÇA CRÍTICA: Mensagem de erro nova para forçar reconhecimento da versão
+  if (!currentKey) throw new Error("⛔ ERRO CRÍTICO: Chave API não detectada. Por favor, reconfigure no menu de Login ou Configurações.");
 
   const ai = new GoogleGenAI({ apiKey: currentKey });
   const prompt = `
@@ -207,8 +210,7 @@ export const runSimulation = async (input: MatchInput): Promise<SimulationResult
     Obs: "${input.observations || ""}".
     
     PESQUISE (Se possível): Lesões, Clima, Arbitragem, Odds.
-    Se não conseguir pesquisar, use estatísticas históricas.
-    Retorne JSON (Single Match Structure).
+    Retorne JSON.
   `;
 
   try {
@@ -226,7 +228,6 @@ export const runSimulation = async (input: MatchInput): Promise<SimulationResult
     
   } catch (error: any) {
     console.warn("Falha no Search Grounding ou Cota. Tentando Fallback Offline...", error);
-    
     try {
         const fallbackResponse = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: "gemini-2.5-flash",
@@ -252,29 +253,19 @@ export const runBatchSimulation = async (
   onProgress?: (current: number, total: number, message: string) => void
 ): Promise<BatchResultItem[]> => {
   const currentKey = getApiKey();
-  if (!currentKey) throw new Error("API Key não configurada.");
+  if (!currentKey) throw new Error("API Key ausente. Configure na tela inicial.");
 
   const ai = new GoogleGenAI({ apiKey: currentKey });
   const results: BatchResultItem[] = [];
-  const CHUNK_SIZE = 3; // Batch menor para garantir estabilidade
+  const CHUNK_SIZE = 3; 
 
   for (let i = 0; i < matches.length; i += CHUNK_SIZE) {
      const chunk = matches.slice(i, i + CHUNK_SIZE);
-     const currentMsg = `Processando bloco ${Math.floor(i/CHUNK_SIZE) + 1} de ${Math.ceil(matches.length/CHUNK_SIZE)}...`;
-     
-     if (onProgress) onProgress(i, matches.length, currentMsg);
-     
+     if (onProgress) onProgress(i, matches.length, `Processando lote ${Math.floor(i/CHUNK_SIZE) + 1}...`);
      if (i > 0) await delay(2000);
 
      const matchesList = chunk.map(m => `- ID ${m.id}: ${m.homeTeam} vs ${m.awayTeam} (${m.date})`).join('\n');
-     
-     const prompt = `
-        Analise estatisticamente (Win Probability & Stats):
-        ${matchesList}
-        Obs: "${observations}"
-        
-        OUTPUT JSON ARRAY: [ { "id": "ID", "homeTeam": "A", "awayTeam": "B", "homeWinProb": n, "drawProb": n, "awayWinProb": n, "summary": "txt", "weatherText": "txt", "statsSummary": "txt" } ]
-      `;
+     const prompt = `Analise estatisticamente: ${matchesList} Obs: "${observations}". OUTPUT JSON ARRAY.`;
 
       try {
         const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
@@ -282,69 +273,55 @@ export const runBatchSimulation = async (
           contents: prompt,
           config: { tools: [{ googleSearch: {} }] },
         }), 1, 2000);
-
         const data = parseGeminiResponse(response.text || "");
         processChunkData(data, results);
-
       } catch (error) {
-        console.warn(`Erro no bloco com Search. Tentando Fallback Offline...`);
         try {
             const fallbackResponse = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
                 model: "gemini-2.5-flash",
-                contents: prompt + " ATENÇÃO: Use apenas conhecimento estatístico. Não pesquise na web.",
+                contents: prompt + " APENAS ESTATÍSTICA PURA. SEM PESQUISA.",
             }));
             const data = parseGeminiResponse(fallbackResponse.text || "");
             processChunkData(data, results, true);
         } catch (fallbackError) {
-             console.error(`Error processing chunk fallback:`, fallbackError);
              chunk.forEach(m => {
                 results.push({
                     id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam,
                     homeWinProb: 33, drawProb: 34, awayWinProb: 33,
-                    summary: "Erro na análise (Falha Total).", bettingTip: "Erro", bettingTipCode: "1X2"
+                    summary: "Erro na análise.", bettingTip: "Erro", bettingTipCode: "1X2"
                 });
             });
         }
       }
   }
-
   return results;
 };
 
 function processChunkData(data: any, resultsArray: BatchResultItem[], isFallback = false) {
     let chunkResults: any[] = [];
-    if (Array.isArray(data)) {
-        chunkResults = data;
-    } else if (data.matches && Array.isArray(data.matches)) {
-        chunkResults = data.matches;
-    } else {
-         chunkResults = [data];
-    }
+    if (Array.isArray(data)) chunkResults = data;
+    else if (data.matches && Array.isArray(data.matches)) chunkResults = data.matches;
+    else chunkResults = [data];
     
     chunkResults.forEach(item => {
        const h = Number(item.homeWinProb) || 33;
        const d = Number(item.drawProb) || 34;
        const a = Number(item.awayWinProb) || 33;
-
        resultsArray.push({
            id: item.id?.toString() || "0",
            homeTeam: item.homeTeam || "Time A",
            awayTeam: item.awayTeam || "Time B",
-           homeWinProb: h,
-           drawProb: d,
-           awayWinProb: a,
-           summary: (item.summary || "Análise estatística.") + (isFallback ? " (Est.)" : ""),
-           weatherText: item.weatherText,
-           statsSummary: item.statsSummary,
-           bettingTip: "", 
-           bettingTipCode: "" 
+           homeWinProb: h, drawProb: d, awayWinProb: a,
+           summary: (item.summary || "Análise.") + (isFallback ? " (Offline)" : ""),
+           weatherText: item.weatherText, statsSummary: item.statsSummary,
+           bettingTip: "", bettingTipCode: "" 
        });
     });
 }
 
 export const fetchLoteriaMatches = async (concurso: string): Promise<BatchMatchInput[]> => {
   const currentKey = getApiKey();
-  if (!currentKey) throw new Error("API Key não configurada.");
+  if (!currentKey) throw new Error("API Key ausente.");
   const ai = new GoogleGenAI({ apiKey: currentKey });
   const prompt = `Loteca Concurso ${concurso}. Retorne JSON Array: [{ "homeTeam": "A", "awayTeam": "B", "date": "YYYY-MM-DD", "actualHomeScore": n, "actualAwayScore": n }]`;
 
@@ -364,16 +341,15 @@ export const fetchLoteriaMatches = async (concurso: string): Promise<BatchMatchI
       actualAwayScore: item.actualAwayScore
     }));
   } catch (error) {
-    throw new Error("Erro ao buscar concurso. Tente novamente em 1 min.");
+    throw new Error("Erro ao buscar concurso. Tente novamente.");
   }
 };
 
 export const fetchLoteriaPrizeInfo = async (concurso: string): Promise<LoteriaPrizeInfo> => {
   const currentKey = getApiKey();
-  if (!currentKey) throw new Error("API Key não configurada.");
+  if (!currentKey) throw new Error("API Key ausente.");
   const ai = new GoogleGenAI({ apiKey: currentKey });
   const prompt = `Resultado Loteca ${concurso}. JSON: { "prize14": "valor", "winners14": n, "prize13": "valor", "winners13": n, "accumulated": bool }`;
-
   try {
     const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -396,7 +372,7 @@ export const fetchLoteriaPrizeInfo = async (concurso: string): Promise<LoteriaPr
 
 export const checkMatchResults = async (matches: BatchMatchInput[]): Promise<BatchMatchInput[]> => {
   const currentKey = getApiKey();
-  if (!currentKey) throw new Error("API Key não configurada.");
+  if (!currentKey) throw new Error("API Key ausente.");
   
   const ai = new GoogleGenAI({ apiKey: currentKey });
   const updatedMatches: BatchMatchInput[] = [];
@@ -405,7 +381,6 @@ export const checkMatchResults = async (matches: BatchMatchInput[]): Promise<Bat
   const processChunk = async (chunkMatches: BatchMatchInput[]): Promise<BatchMatchInput[]> => {
       const list = chunkMatches.map(m => `${m.homeTeam} vs ${m.awayTeam} (${m.date})`).join(', ');
       const prompt = `Placares reais para: ${list}. Retorne JSON Array: [{ "id": "1", "actualHomeScore": n, "actualAwayScore": n }]`;
-
       try {
         const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
           model: "gemini-2.5-flash",
@@ -413,12 +388,10 @@ export const checkMatchResults = async (matches: BatchMatchInput[]): Promise<Bat
           config: { tools: [{ googleSearch: {} }] },
         }));
         const resultsData = parseGeminiResponse(response.text || "");
-        
         return chunkMatches.map(m => {
            const found = Array.isArray(resultsData) ? resultsData.find((r: any) => 
              r.id == m.id || r.homeTeam?.includes(m.homeTeam)
            ) : null;
-
            if (found && typeof found.actualHomeScore === 'number') {
              return { ...m, actualHomeScore: found.actualHomeScore, actualAwayScore: found.actualAwayScore };
            }
@@ -439,35 +412,16 @@ export const checkMatchResults = async (matches: BatchMatchInput[]): Promise<Bat
 };
 
 export const runHistoricalBacktest = async (
-  startDraw: number, 
-  endDraw: number,
-  onProgress: (message: string) => void
+  startDraw: number, endDraw: number, onProgress: (message: string) => void
 ): Promise<HistoricalDrawStats[]> => {
   return []; 
 };
 
-// --- VAR ANALYSIS FEATURE ---
-
 export const findMatchesByYear = async (teamA: string, teamB: string, year: string): Promise<MatchCandidate[]> => {
   const currentKey = getApiKey();
-  if (!currentKey) throw new Error("API Key não configurada.");
+  if (!currentKey) throw new Error("API Key ausente.");
   const ai = new GoogleGenAI({ apiKey: currentKey });
-
-  const prompt = `
-    Liste todos os jogos oficiais de futebol entre **${teamA}** e **${teamB}** ocorridos no ano de **${year}**.
-    Ignore amistosos se houver jogos oficiais.
-    
-    RETORNE APENAS UM JSON ARRAY:
-    [
-      {
-        "date": "YYYY-MM-DD",
-        "homeTeam": "Nome Time Mandante",
-        "awayTeam": "Nome Time Visitante",
-        "score": "Placar Final (ex: 2-1)",
-        "competition": "Nome do Campeonato (ex: Brasileirão, Copa do Brasil)"
-      }
-    ]
-  `;
+  const prompt = `Jogos oficiais ${teamA} vs ${teamB} em ${year}. JSON Array: [{ "date": "YYYY-MM-DD", "homeTeam": "A", "awayTeam": "B", "score": "X-Y", "competition": "Nome" }]`;
 
   try {
      const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
@@ -475,57 +429,26 @@ export const findMatchesByYear = async (teamA: string, teamB: string, year: stri
         contents: prompt,
         config: { tools: [{ googleSearch: {} }] },
      }), 2, 2000);
-
      const parsedData = parseGeminiResponse(response.text || "");
-     if (Array.isArray(parsedData)) {
-        return parsedData;
-     }
+     if (Array.isArray(parsedData)) return parsedData;
      return [];
   } catch (e) {
-     console.error("Error finding matches", e);
-     throw new Error("Erro ao buscar jogos. Verifique os times e o ano.");
+     throw new Error("Erro ao buscar jogos.");
   }
 };
 
 export const runVarAnalysis = async (home: string, away: string, date: string): Promise<VarAnalysisResult> => {
    const currentKey = getApiKey();
-   if (!currentKey) throw new Error("API Key não configurada.");
-   
+   if (!currentKey) throw new Error("API Key ausente.");
    const ai = new GoogleGenAI({ apiKey: currentKey });
-   
-   const prompt = `
-     Atue como um especialista em arbitragem de futebol.
-     Analise a arbitragem do jogo: **${home} vs ${away}** realizado em ${date}.
-     
-     TAREFAS:
-     1. Pesquise "polêmicas de arbitragem", "erros de arbitragem", "VAR", "Central do Apito".
-     2. Procure opiniões de comentaristas (PC Oliveira, Sálvio Spínola, etc).
-     
-     RETORNE SOMENTE RAW JSON (sem markdown):
-     {
-       "match": "${home} x ${away}",
-       "date": "${date}",
-       "referee": "Nome do Árbitro",
-       "refereeGrade": number (0-10),
-       "summary": "Resumo (Texto curto)",
-       "incidents": [
-         {
-           "minute": "35' 1T",
-           "description": "Lance",
-           "expertOpinion": "Opinião",
-           "verdict": "CORRECT" | "ERROR" | "CONTROVERSIAL"
-         }
-       ]
-     }
-   `;
+   const prompt = `Analise arbitragem de ${home} vs ${away} (${date}). JSON VAR Analysis.`;
    
    try {
       const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: prompt,
-        config: { tools: [{ googleSearch: {} }] }, // Essencial: Search ativado
+        config: { tools: [{ googleSearch: {} }] }, 
       }), 2, 2000);
-      
       const parsedData = parseGeminiResponse(response.text || "");
       const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
         ?.filter((c: any) => c.web?.uri).map((c: any) => ({ uri: c.web.uri, title: c.web.title })) || [];
@@ -535,34 +458,23 @@ export const runVarAnalysis = async (home: string, away: string, date: string): 
          date: parsedData.date || date,
          referee: parsedData.referee || "Não identificado",
          refereeGrade: typeof parsedData.refereeGrade === 'number' ? parsedData.refereeGrade : 5,
-         summary: parsedData.summary || "Sem dados suficientes sobre a arbitragem.",
+         summary: parsedData.summary || "Sem dados.",
          incidents: Array.isArray(parsedData.incidents) ? parsedData.incidents : [],
          sources
       };
-      
    } catch (e) {
-     console.warn("VAR Analysis - Search Failed, trying fallback...", e);
-     
-     // Fallback para conhecimento interno sem pesquisa
      try {
          const fallbackResponse = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
              model: "gemini-2.5-flash",
-             contents: prompt + " IMPORTANTE: Use seu conhecimento histórico interno. NÃO pesquise na web.",
+             contents: prompt + " OFFLINE MODE. ONLY STATS.",
          }), 2, 2000);
-         
          const parsedData = parseGeminiResponse(fallbackResponse.text || "");
          return {
-            match: parsedData.match || `${home} x ${away}`,
-            date: parsedData.date || date,
-            referee: parsedData.referee || "Não identificado",
-            refereeGrade: typeof parsedData.refereeGrade === 'number' ? parsedData.refereeGrade : 5,
-            summary: parsedData.summary || "Análise baseada em histórico (Modo Offline).",
-            incidents: Array.isArray(parsedData.incidents) ? parsedData.incidents : [],
-            sources: []
+            match: `${home} x ${away}`, date, referee: "Offline", refereeGrade: 5,
+            summary: "Modo Offline.", incidents: [], sources: []
          };
      } catch (finalError) {
-         console.error("Fatal VAR Error", finalError);
-         throw new Error("Não foi possível analisar a arbitragem deste jogo. Verifique se a data está correta ou se o jogo já ocorreu.");
+         throw new Error("Falha na análise VAR.");
      }
    }
 };
