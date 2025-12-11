@@ -5,11 +5,11 @@ import MoodSelector from './components/MoodSelector';
 import ResultView from './components/ResultView';
 import BatchMode from './components/BatchMode';
 import HistoryMode from './components/HistoryMode'; 
-import VarMode from './components/VarMode'; // Import
+import VarMode from './components/VarMode'; 
 import RiskSelector from './components/RiskSelector';
-import { runSimulation, getApiKey } from './services/geminiService'; // Import getApiKey
-import { authService } from './services/authService'; // Import Auth
-import { Loader2, Calendar, Search, Layers, Activity, Trophy, MessageSquare, History, MonitorPlay, LogOut, User, Settings, Key, X, Save } from 'lucide-react';
+import { runSimulation, getApiKey } from './services/geminiService'; 
+import { authService } from './services/authService'; 
+import { Loader2, Calendar, Search, Layers, Activity, Trophy, MessageSquare, History, MonitorPlay, LogOut, User, Settings, Key, X, Save, Trash2 } from 'lucide-react';
 import LoginScreen from './components/LoginScreen';
 
 const App: React.FC = () => {
@@ -49,7 +49,7 @@ const App: React.FC = () => {
         setApiKey(key);
     } else {
         // Se não encontrar chave, força abertura do settings
-        setShowSettings(true);
+        if (isAuthenticated) setShowSettings(true);
     }
 
     // 3. URL Magic Link Check (se existir)
@@ -61,7 +61,7 @@ const App: React.FC = () => {
         window.history.replaceState({}, document.title, "/");
         setShowSettings(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   const handleLogout = () => {
     authService.logout();
@@ -75,6 +75,7 @@ const App: React.FC = () => {
     if (user) setCurrentUser(user);
     setIsAuthenticated(true);
     
+    // Se logou, checa a chave novamente. Se não tiver, o LoginScreen já obrigou, mas por segurança:
     if (!getApiKey()) {
         setShowSettings(true);
     }
@@ -84,10 +85,16 @@ const App: React.FC = () => {
      if (apiKey.trim()) {
         localStorage.setItem('sportsim_api_key', apiKey.trim());
         setShowSettings(false);
-        // Limpa erro anterior se houver
         if (error && error.includes('API')) setError(null);
         alert("Chave API salva e pronta para uso!");
      }
+  };
+
+  const hardReset = () => {
+      if (confirm("Isso apagará sua Chave API e deslogará do sistema para limpar erros de cache. Confirmar?")) {
+          localStorage.clear();
+          window.location.reload();
+      }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -102,8 +109,9 @@ const App: React.FC = () => {
       setResult(data);
     } catch (err: any) {
       const msg = err.message || "Erro desconhecido";
-      if (msg.includes("API Key") || msg.includes("chave") || msg.includes("configurada")) {
-         setError("⚠️ É necessário configurar a API Key para usar o simulador.");
+      // Tratamento genérico para erros de chave
+      if (msg.includes("API Key") || msg.includes("chave") || msg.includes("configurada") || msg.includes("CRÍTICO")) {
+         setError(msg);
          setShowSettings(true); // AUTO-OPEN SETTINGS
       } else {
          setError(msg);
@@ -256,6 +264,15 @@ const App: React.FC = () => {
                     >
                        <Save size={18} /> Salvar e Continuar
                     </button>
+                    
+                    <div className="pt-4 border-t border-slate-800 mt-4">
+                        <button 
+                            onClick={hardReset}
+                            className="w-full bg-slate-800 hover:bg-red-900/50 text-slate-400 hover:text-red-300 font-bold py-2 rounded-lg flex items-center justify-center gap-2 text-xs transition-colors"
+                        >
+                            <Trash2 size={14} /> Resetar App (Corrigir Erros de Cache)
+                        </button>
+                    </div>
                  </div>
               </div>
            </div>
