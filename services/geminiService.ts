@@ -446,7 +446,30 @@ export const runVarAnalysis = async (home: string, away: string, date: string): 
    const currentKey = getApiKey();
    if (!currentKey) throw new Error("API Key ausente.");
    const ai = new GoogleGenAI({ apiKey: currentKey });
-   const prompt = `Analise arbitragem de ${home} vs ${away} (${date}). JSON VAR Analysis.`;
+   
+   // CORREÇÃO: Prompt Estruturado Rigorosamente
+   const prompt = `
+     Analise a arbitragem do jogo de futebol: **${home}** vs **${away}** (Data: ${date}).
+     Pesquise por polêmicas de arbitragem, VAR, cartões vermelhos e pênaltis.
+     
+     Retorne APENAS um JSON válido com este formato exato:
+     {
+       "match": "${home} x ${away}",
+       "date": "${date}",
+       "referee": "Nome do Árbitro (ou 'Desconhecido')",
+       "refereeGrade": 5.0,
+       "summary": "Resumo da atuação da arbitragem...",
+       "incidents": [
+         {
+           "minute": "45'",
+           "description": "Descrição do lance...",
+           "expertOpinion": "Opinião da crítica especializada...",
+           "verdict": "CORRECT" 
+         }
+       ]
+     }
+     Nota: verdict deve ser "CORRECT", "ERROR" ou "CONTROVERSIAL". Se não houver incidentes, retorne "incidents": [].
+   `;
    
    try {
       const response = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
@@ -454,6 +477,7 @@ export const runVarAnalysis = async (home: string, away: string, date: string): 
         contents: prompt,
         config: { tools: [{ googleSearch: {} }] }, 
       }), 2, 2000);
+      
       const parsedData = parseGeminiResponse(response.text || "");
       const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
         ?.filter((c: any) => c.web?.uri).map((c: any) => ({ uri: c.web.uri, title: c.web.title })) || [];
@@ -468,18 +492,25 @@ export const runVarAnalysis = async (home: string, away: string, date: string): 
          sources
       };
    } catch (e) {
+     // Fallback OFFLINE Robusto
      try {
          const fallbackResponse = await callWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
              model: "gemini-2.5-flash",
-             contents: prompt + " OFFLINE MODE. ONLY STATS.",
+             contents: prompt + "\n\nMODO OFFLINE: Responda com base no seu conhecimento prévio. Se não souber os lances específicos, gere um resumo genérico e incidents vazio.",
          }), 2, 2000);
          const parsedData = parseGeminiResponse(fallbackResponse.text || "");
          return {
-            match: `${home} x ${away}`, date, referee: "Offline", refereeGrade: 5,
-            summary: "Modo Offline.", incidents: [], sources: []
+            match: `${home} x ${away}`, 
+            date, 
+            referee: parsedData.referee || "Offline", 
+            refereeGrade: parsedData.refereeGrade || 5,
+            summary: parsedData.summary || "Modo Offline (Sem acesso a lances recentes).", 
+            incidents: Array.isArray(parsedData.incidents) ? parsedData.incidents : [], 
+            sources: []
          };
      } catch (finalError) {
-         throw new Error("Falha na análise VAR.");
+         console.error("Erro fatal VAR:", finalError);
+         throw new Error("Falha na análise VAR: Não foi possível estruturar os dados.");
      }
    }
 };
