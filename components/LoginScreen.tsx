@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Lock, ShieldCheck, UserPlus, LogIn, Key, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Edit2 } from 'lucide-react';
+import { Lock, ShieldCheck, UserPlus, LogIn, Key, AlertTriangle, CheckCircle2, Edit2 } from 'lucide-react';
 import { authService } from '../services/authService';
+import { getApiKey } from '../services/geminiService'; // Importando a fonte da verdade
 
 interface LoginScreenProps {
   onLogin: () => void;
@@ -21,18 +22,19 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Verifica se já existe chave ao carregar
+  // Verifica se já existe chave ao carregar usando o Service central
   useEffect(() => {
-     const storedKey = localStorage.getItem('sportsim_api_key');
-     const envKey = (import.meta as any).env?.VITE_API_KEY;
+     const currentKey = getApiKey();
      
-     if (storedKey || envKey) {
+     if (currentKey) {
         setHasKeyConfigured(true);
-        setIsEditingKey(false); // Se tem chave, começa fechado
-        if (storedKey) setApiKey(storedKey);
+        setIsEditingKey(false); 
+        // Ocultar a chave real por segurança, apenas mostrar placeholder se quiser
+        setApiKey(currentKey); 
      } else {
         setHasKeyConfigured(false);
-        setIsEditingKey(true); // Se NÃO tem chave, começa ABERTO
+        setIsEditingKey(true); // FORÇA A ABERTURA SE NÃO TIVER CHAVE
+        setApiKey('');
      }
   }, []);
 
@@ -46,19 +48,22 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       return;
     }
 
-    // Validação da API Key
-    const envKey = (import.meta as any).env?.VITE_API_KEY;
-    const finalKey = apiKey.trim() || localStorage.getItem('sportsim_api_key') || envKey;
+    // Validação rigorosa da API Key antes de logar
+    const keyToSave = apiKey.trim();
+    const currentValidKey = getApiKey();
 
-    if (!finalKey) {
+    if (!currentValidKey && !keyToSave) {
        setError('A API Key é OBRIGATÓRIA para usar o sistema.');
-       setIsEditingKey(true); // Reabre o campo se tentar logar sem chave
+       setIsEditingKey(true);
        return;
     }
 
-    // Salva a chave se foi digitada
-    if (apiKey.trim()) {
-        localStorage.setItem('sportsim_api_key', apiKey.trim());
+    // Se digitou uma nova chave, salva
+    if (keyToSave && keyToSave.length > 20) {
+        localStorage.setItem('sportsim_api_key', keyToSave);
+    } else if (keyToSave && keyToSave.length <= 20) {
+        setError('A chave API parece inválida (muito curta).');
+        return;
     }
 
     if (isRegistering) {
@@ -89,9 +94,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     setIsRegistering(!isRegistering);
     setError('');
     setSuccessMsg('');
-    setUsername('');
-    setPassword('');
-    setConfirmPassword('');
   };
 
   return (
@@ -112,29 +114,11 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           </p>
         </div>
 
-        <div className="flex bg-slate-950 p-1 rounded-xl mb-6 border border-slate-800">
-           <button 
-             type="button"
-             onClick={() => !isRegistering || toggleMode()}
-             className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${!isRegistering ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
-           >
-             Entrar
-           </button>
-           <button 
-             type="button"
-             onClick={() => isRegistering || toggleMode()}
-             className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${isRegistering ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
-           >
-             Cadastrar
-           </button>
-        </div>
-
         <form onSubmit={handleSubmit} className="space-y-4">
           
-          {/* SEÇÃO DA API KEY - LÓGICA REVISADA */}
+          {/* SEÇÃO DA API KEY */}
           <div className="mb-6">
-             {/* Cenário 1: Já tem chave configurada (Exibe badge verde e esconde input) */}
-             {hasKeyConfigured && !isEditingKey && (
+             {hasKeyConfigured && !isEditingKey ? (
                 <div className="bg-emerald-950/30 border border-emerald-500/30 p-3 rounded-xl flex items-center justify-between">
                     <div className="flex items-center gap-3">
                        <div className="bg-emerald-500/20 p-2 rounded-lg text-emerald-400">
@@ -142,37 +126,35 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                        </div>
                        <div>
                           <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Status da API</div>
-                          <div className="text-xs font-bold text-white">Chave Configurada</div>
+                          <div className="text-xs font-bold text-white">Chave Ativa</div>
                        </div>
                     </div>
                     <button 
                       type="button"
-                      onClick={() => setIsEditingKey(true)}
+                      onClick={() => { setIsEditingKey(true); setApiKey(''); }}
                       className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg font-bold border border-slate-700 transition-colors flex items-center gap-1"
                     >
                        <Edit2 size={10} /> Alterar
                     </button>
                 </div>
-             )}
-
-             {/* Cenário 2: Não tem chave OU está editando (Exibe Input Grande) */}
-             {(!hasKeyConfigured || isEditingKey) && (
+             ) : (
                 <div className="space-y-2 animate-fade-in">
                    <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl text-amber-200 text-xs flex items-start gap-2">
                       <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-500"/>
                       <div>
-                         <span className="font-bold block text-amber-400 uppercase tracking-wide text-[10px] mb-1">Configuração Obrigatória</span>
-                         <span>Cole sua Google Gemini API Key abaixo para ativar o sistema.</span>
+                         <span className="font-bold block text-amber-400 uppercase tracking-wide text-[10px] mb-1">Passo 1: Configuração Obrigatória</span>
+                         <span>Cole sua Google Gemini API Key abaixo para liberar o acesso.</span>
                       </div>
                    </div>
                    <div className="relative">
                       <Key className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
                       <input
                         type="text"
-                        className="w-full bg-slate-950 border border-emerald-500/50 rounded-xl py-3 pl-10 pr-4 text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono text-xs placeholder:text-slate-600"
+                        className="w-full bg-slate-950 border-2 border-emerald-500/50 rounded-xl py-3 pl-10 pr-4 text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono text-xs placeholder:text-slate-600 shadow-[0_0_15px_rgba(16,185,129,0.15)]"
                         placeholder="Cole sua chave aqui (AIzaSy...)"
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
+                        autoComplete="off"
                       />
                    </div>
                    {hasKeyConfigured && (
@@ -181,7 +163,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                         onClick={() => setIsEditingKey(false)}
                         className="text-[10px] text-slate-500 hover:text-white underline w-full text-right"
                       >
-                        Cancelar alteração
+                        Cancelar e usar chave salva
                       </button>
                    )}
                 </div>
@@ -235,9 +217,26 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             </div>
           )}
 
+          <div className="flex bg-slate-950 p-1 rounded-xl mb-6 border border-slate-800 mt-4">
+             <button 
+               type="button"
+               onClick={() => !isRegistering || toggleMode()}
+               className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${!isRegistering ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+             >
+               Entrar
+             </button>
+             <button 
+               type="button"
+               onClick={() => isRegistering || toggleMode()}
+               className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${isRegistering ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+             >
+               Cadastrar
+             </button>
+          </div>
+
           <button
             type="submit"
-            className={`w-full text-white font-black uppercase tracking-widest py-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 group mt-4 ${isRegistering ? 'bg-blue-600 hover:bg-blue-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}
+            className={`w-full text-white font-black uppercase tracking-widest py-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 group ${isRegistering ? 'bg-blue-600 hover:bg-blue-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}
           >
             {isRegistering ? (
                 <>
@@ -253,7 +252,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         
         <div className="mt-8 text-center">
            <p className="text-[10px] text-slate-600 font-mono">
-             Security Gateway v3.4 • Powered by Gemini
+             Security Gateway v3.5 • Powered by Gemini
            </p>
         </div>
       </div>
