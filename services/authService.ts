@@ -19,6 +19,9 @@ const ALLOWED_INVITE_CODES = [
   'VIP_2024',      // Um código genérico para vários amigos
   'MARCEL',    // Exemplo: Para revogar depois, basta apagar esta linha
   'DENNIS',  // Outro exemplo
+  'ALEXANDRE'
+  'GONGA'
+  'GUSTAVO'
 ];
 
 export const authService = {
@@ -33,14 +36,25 @@ export const authService = {
     // Se a lista estiver vazia, permite qualquer um (modo desenvolvimento)
     // Se tiver códigos, obriga a bater com um deles
     if (ALLOWED_INVITE_CODES.length === 0) return true;
-    return ALLOWED_INVITE_CODES.includes(code.trim());
+    
+    // Normalização para evitar erros de digitação (Case Insensitive)
+    const normalizedInput = code.trim().toUpperCase();
+    const normalizedAllowed = ALLOWED_INVITE_CODES.map(c => c.toUpperCase());
+    
+    return normalizedAllowed.includes(normalizedInput);
   },
 
   // Registra um novo usuário
   register: (username: string, password: string, inviteCode: string = ''): { success: boolean; message: string } => {
     // 1. Validação de Convite (Security Check)
-    if (ALLOWED_INVITE_CODES.length > 0 && !ALLOWED_INVITE_CODES.includes(inviteCode.trim())) {
-        return { success: false, message: 'Código de convite inválido ou expirado.' };
+    if (ALLOWED_INVITE_CODES.length > 0) {
+        // Converte tudo para maiúsculo para comparar, evitando erro de "Vip" vs "VIP"
+        const normalizedInput = inviteCode.trim().toUpperCase();
+        const normalizedAllowed = ALLOWED_INVITE_CODES.map(c => c.toUpperCase());
+
+        if (!normalizedAllowed.includes(normalizedInput)) {
+            return { success: false, message: 'Código de convite inválido ou expirado.' };
+        }
     }
 
     const users = authService.getUsers();
@@ -56,7 +70,7 @@ export const authService = {
     const newUser: User = {
       username,
       password, 
-      accessCode: inviteCode,
+      accessCode: inviteCode.toUpperCase(), // Salva padronizado
       createdAt: new Date().toISOString()
     };
 
