@@ -1,15 +1,25 @@
 
 // Simulação de Backend usando LocalStorage
-// NOTA: Em produção real, você usaria Firebase, Supabase ou um backend Node.js.
 
 export interface User {
   username: string;
-  password: string; // Em um app real, isso seria um Hash, nunca texto puro.
+  password: string; 
   createdAt: string;
+  accessCode?: string; // Rastreia qual código o usuário usou
 }
 
 const STORAGE_KEY = 'sportsim_users';
 const SESSION_KEY = 'sportsim_session';
+
+// --- ÁREA DE CONFIGURAÇÃO DE ACESSO (LINHA 13) ---
+// Cadastre aqui os CÓDIGOS que seus amigos usarão para criar conta.
+// O Nome de Usuário eles escolhem na hora do cadastro.
+const ALLOWED_INVITE_CODES = [
+  'ADMIN_MASTER',  // Seu acesso pessoal
+  'VIP_2024',      // Um código genérico para vários amigos
+  'MARCEL',    // Exemplo: Para revogar depois, basta apagar esta linha
+  'DENNIS',  // Outro exemplo
+];
 
 export const authService = {
   // Retorna todos os usuários cadastrados
@@ -18,8 +28,21 @@ export const authService = {
     return usersStr ? JSON.parse(usersStr) : [];
   },
 
+  // Valida se um código de convite existe e está ativo
+  validateInvite: (code: string): boolean => {
+    // Se a lista estiver vazia, permite qualquer um (modo desenvolvimento)
+    // Se tiver códigos, obriga a bater com um deles
+    if (ALLOWED_INVITE_CODES.length === 0) return true;
+    return ALLOWED_INVITE_CODES.includes(code.trim());
+  },
+
   // Registra um novo usuário
-  register: (username: string, password: string): { success: boolean; message: string } => {
+  register: (username: string, password: string, inviteCode: string = ''): { success: boolean; message: string } => {
+    // 1. Validação de Convite (Security Check)
+    if (ALLOWED_INVITE_CODES.length > 0 && !ALLOWED_INVITE_CODES.includes(inviteCode.trim())) {
+        return { success: false, message: 'Código de convite inválido ou expirado.' };
+    }
+
     const users = authService.getUsers();
     
     if (users.find(u => u.username.toLowerCase() === username.toLowerCase())) {
@@ -32,7 +55,8 @@ export const authService = {
 
     const newUser: User = {
       username,
-      password, // Armazenando simples para demo. Em prod, usar bcrypt.
+      password, 
+      accessCode: inviteCode,
       createdAt: new Date().toISOString()
     };
 
@@ -47,7 +71,7 @@ export const authService = {
 
   // Realiza login
   login: (username: string, password: string): { success: boolean; message: string } => {
-    // Backdoor original mantido para testes
+    // Backdoor original mantido para testes (LINHA 68 - Usuário fixo de emergência)
     if (username === 'admin' && password === '1234') {
         localStorage.setItem(SESSION_KEY, 'admin');
         return { success: true, message: 'Bem-vindo, Admin.' };
