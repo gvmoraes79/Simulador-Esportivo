@@ -1,18 +1,20 @@
 
 import React, { useState, useEffect } from 'react';
-import { Lock, ShieldCheck, UserPlus, LogIn, Key, AlertTriangle, CheckCircle2, Edit2, Trash2 } from 'lucide-react';
+import { Lock, ShieldCheck, UserPlus, LogIn, Key, AlertTriangle, CheckCircle2, Edit2, Trash2, Ticket, Smartphone, Monitor } from 'lucide-react';
 import { authService } from '../services/authService';
 import { getApiKey } from '../services/geminiService';
 
 interface LoginScreenProps {
   onLogin: () => void;
+  initialInviteCode?: string;
 }
 
-const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
+const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, initialInviteCode = '' }) => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState(initialInviteCode);
   
   // API Key States
   const [apiKey, setApiKey] = useState('');
@@ -38,7 +40,11 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
   useEffect(() => {
      checkKey();
-  }, []);
+     if (initialInviteCode) {
+        setInviteCode(initialInviteCode);
+        setIsRegistering(true); // Se veio com convite, já abre no registro
+     }
+  }, [initialInviteCode]);
 
   const handleForceReset = () => {
       if(confirm("Isso apagará todas as configurações e chaves salvas neste dispositivo. Continuar?")) {
@@ -87,8 +93,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         setError('As senhas não coincidem.');
         return;
       }
+      
+      if (!inviteCode) {
+         setError('Código de convite obrigatório.');
+         return;
+      }
 
-      const result = authService.register(username, password);
+      const result = authService.register(username, password, inviteCode);
       if (result.success) {
         setSuccessMsg(result.message);
         setTimeout(() => onLogin(), 1000);
@@ -209,15 +220,32 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           </div>
 
           {isRegistering && (
-             <div className="animate-fade-in">
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Confirmar Senha</label>
-                <input
-                  type="password"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-bold placeholder:text-slate-800"
-                  placeholder="••••••"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                />
+             <div className="animate-fade-in space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Confirmar Senha</label>
+                  <input
+                    type="password"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-bold placeholder:text-slate-800"
+                    placeholder="••••••"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
+                </div>
+                
+                <div>
+                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Código de Convite</label>
+                   <div className="relative">
+                      <Ticket className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+                      <input
+                        type="text"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 pl-10 text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-bold placeholder:text-slate-800 uppercase"
+                        placeholder="TOKEN"
+                        value={inviteCode}
+                        onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                      />
+                   </div>
+                   <p className="text-[9px] text-slate-600 mt-1 ml-1">Necessário token de acesso para novos cadastros.</p>
+                </div>
              </div>
           )}
 
@@ -266,7 +294,21 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           </button>
         </form>
         
-        <div className="mt-8 text-center border-t border-slate-800 pt-4">
+        {/* Aviso sobre Armazenamento Local */}
+        <div className="mt-6 border-t border-slate-800 pt-4 px-2">
+           <div className="flex items-start gap-2 text-[10px] text-slate-500 bg-slate-950/50 p-3 rounded-lg border border-slate-800/50">
+              <div className="flex gap-1 shrink-0 mt-0.5">
+                 <Monitor size={12} />
+                 <Smartphone size={12} />
+              </div>
+              <p>
+                 <span className="font-bold text-slate-400 block mb-0.5">Armazenamento Local (Offline)</span>
+                 Este app salva os dados no navegador do seu dispositivo. Contas criadas no PC não aparecem no celular. É necessário criar um cadastro em cada aparelho.
+              </p>
+           </div>
+        </div>
+        
+        <div className="mt-4 text-center">
              <button onClick={handleForceReset} className="text-[10px] text-red-500 hover:text-red-400 uppercase font-bold flex items-center gap-1 mx-auto hover:bg-red-950/30 px-3 py-1.5 rounded transition-colors">
                  <Trash2 size={12} /> Limpeza de Emergência (Resetar App)
              </button>
