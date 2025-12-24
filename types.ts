@@ -125,12 +125,23 @@ export interface LoteriaPrizeInfo {
   accumulated: boolean;
 }
 
-export interface HistoricalDrawStats {
-  concurso: string;
-  date: string;
-  totalGames: number;
-  scores: Record<RiskLevel, number>; 
+export interface HistoricalTrendResult {
+  team: string;
+  period: string;
+  winRate: number;
+  drawRate: number;
+  lossRate: number;
+  avgGoalsScored: number;
+  avgGoalsConceded: number;
+  tacticalPattern: string;
+  consistencyScore: number;
   bestStrategy: RiskLevel;
+  recentMatches: {
+    opponent: string;
+    score: string;
+    result: 'W' | 'D' | 'L';
+    competition: string;
+  }[];
 }
 
 export interface VarIncident {
