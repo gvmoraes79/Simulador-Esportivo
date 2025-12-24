@@ -9,10 +9,25 @@ export const getApiKey = (): string => process.env.API_KEY || "";
 const parseGeminiResponse = (text: string): any => {
   try {
     const cleanText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-    const start = cleanText.indexOf('{') !== -1 ? cleanText.indexOf('{') : cleanText.indexOf('[');
-    const end = Math.max(cleanText.lastIndexOf('}'), cleanText.lastIndexOf(']'));
+    const startBrace = cleanText.indexOf('{');
+    const startBracket = cleanText.indexOf('[');
+    
+    let start = -1;
+    if (startBrace !== -1 && (startBracket === -1 || startBrace < startBracket)) {
+      start = startBrace;
+    } else {
+      start = startBracket;
+    }
+
+    if (start === -1) return null;
+
+    const lastBrace = cleanText.lastIndexOf('}');
+    const lastBracket = cleanText.lastIndexOf(']');
+    const end = Math.max(lastBrace, lastBracket);
+    
     return JSON.parse(cleanText.substring(start, end + 1));
   } catch (e) {
+    console.error("Erro no parse do JSON:", text);
     throw new Error("Falha ao interpretar dados da IA.");
   }
 };
@@ -23,7 +38,7 @@ export const runSimulation = async (input: MatchInput): Promise<SimulationResult
   
   const prompt = `Realize uma análise estatística e tática profunda para o jogo: ${input.homeTeamName} vs ${input.awayTeamName} em ${input.date}. 
   Considere o perfil de risco ${input.riskLevel}. Obs extras: ${input.observations}.
-  Retorne um JSON detalhado seguindo a interface SimulationResult.`;
+  OBRIGATÓRIO: Retorne apenas um JSON seguindo a interface SimulationResult.`;
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
@@ -36,7 +51,10 @@ export const runSimulation = async (input: MatchInput): Promise<SimulationResult
     .filter((chunk: any) => chunk.web)
     .map((chunk: any) => ({ uri: chunk.web.uri, title: chunk.web.title }));
 
-  return { ...parseGeminiResponse(response.text), matchDate: input.date, sources };
+  const data = parseGeminiResponse(response.text);
+  if (!data) throw new Error("Informações não encontradas para este confronto.");
+
+  return { ...data, matchDate: input.date, sources };
 };
 
 export const runBatchSimulation = async (matches: BatchMatchInput[], risk: RiskLevel, obs: string, onProgress?: (c: number, t: number, m: string) => void): Promise<BatchResultItem[]> => {
@@ -47,9 +65,12 @@ export const runBatchSimulation = async (matches: BatchMatchInput[], risk: RiskL
     const m = matches[i];
     if (onProgress) onProgress(i + 1, matches.length, `Analisando: ${m.homeTeam} x ${m.awayTeam}`);
     
-    const prompt = `Simule: ${m.homeTeam} vs ${m.awayTeam} (${m.date}). JSON: {homeWinProb, drawProb, awayWinProb, summary, bettingTip, bettingTipCode}`;
+    const prompt = `Simule: ${m.homeTeam} vs ${m.awayTeam} (${m.date}). JSON estrito: {homeWinProb, drawProb, awayWinProb, summary, bettingTip, bettingTipCode}`;
     const resp = await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: prompt });
-    results.push({ ...parseGeminiResponse(resp.text), id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam });
+    const parsed = parseGeminiResponse(resp.text);
+    if (parsed) {
+      results.push({ ...parsed, id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam });
+    }
     await delay(500);
   }
   return results;
@@ -59,30 +80,34 @@ export const fetchLoteriaMatches = async (concurso: string): Promise<BatchMatchI
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const resp = await ai.models.generateContent({ 
     model: "gemini-3-flash-preview", 
-    contents: `Liste os 14 jogos da Loteca concurso ${concurso}. JSON Array: [{homeTeam, awayTeam, date}]`,
+    contents: `Liste os 14 jogos da Loteca concurso ${concurso}. Se não encontrar, retorne um array vazio []. JSON Array: [{homeTeam, awayTeam, date}]`,
     config: { tools: [{ googleSearch: {} }] }
   });
-  return parseGeminiResponse(resp.text).map((m: any, i: number) => ({ ...m, id: (i+1).toString() }));
+  return parseGeminiResponse(resp.text) || [];
 };
 
 export const runVarAnalysis = async (h: string, a: string, d: string): Promise<VarAnalysisResult> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const resp = await ai.models.generateContent({ 
     model: "gemini-3-flash-preview", 
-    contents: `Análise de arbitragem histórica: ${h} x ${a} em ${d}. JSON: {referee, refereeGrade, summary, incidents: [{minute, description, expertOpinion, verdict}]}`,
+    contents: `Análise de arbitragem histórica para ${h} x ${a} em ${d}. Se não houver dados específicos, analise o perfil do árbitro e estilo dos times. JSON: {referee, refereeGrade, summary, incidents: [{minute, description, expertOpinion, verdict}]}`,
     config: { tools: [{ googleSearch: {} }] }
   });
-  return { ...parseGeminiResponse(resp.text), match: `${h} x ${a}`, date: d, sources: [] };
+  const data = parseGeminiResponse(resp.text);
+  if (!data) throw new Error("Não foi possível realizar a análise deste jogo.");
+  return { ...data, match: `${h} x ${a}`, date: d, sources: [] };
 };
 
 export const findMatchesByYear = async (tA: string, tB: string, y: string): Promise<MatchCandidate[]> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const resp = await ai.models.generateContent({ 
     model: "gemini-3-flash-preview", 
-    contents: `Jogos entre ${tA} e ${tB} no ano ${y}. JSON Array: [{date, homeTeam, awayTeam, score, competition}]`,
+    contents: `Pesquise partidas reais entre ${tA} e ${tB} no ano ${y}. 
+    IMPORTANTE: Se não encontrar nenhuma partida oficial, retorne APENAS um array vazio []. 
+    JSON Array: [{date, homeTeam, awayTeam, score, competition}]`,
     config: { tools: [{ googleSearch: {} }] }
   });
-  return parseGeminiResponse(resp.text);
+  return parseGeminiResponse(resp.text) || [];
 };
 
 export const fetchLoteriaPrizeInfo = async (concurso: string): Promise<LoteriaPrizeInfo> => {
