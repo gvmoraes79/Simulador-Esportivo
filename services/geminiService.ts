@@ -7,43 +7,55 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export const getApiKey = (): string => process.env.API_KEY || "";
 
 const parseGeminiResponse = (text: string): any => {
+  if (!text) return null;
+  
   try {
-    const cleanText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+    // Remove blocos de código markdown se existirem
+    let cleanText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+    
+    // Tenta encontrar o primeiro caractere que pode ser o início de um JSON ([ ou {)
     const startBrace = cleanText.indexOf('{');
     const startBracket = cleanText.indexOf('[');
     
     let start = -1;
     if (startBrace !== -1 && (startBracket === -1 || startBrace < startBracket)) {
       start = startBrace;
-    } else {
+    } else if (startBracket !== -1) {
       start = startBracket;
     }
 
     if (start === -1) return null;
 
+    // Encontra o último caractere que pode ser o fim de um JSON (] ou })
     const lastBrace = cleanText.lastIndexOf('}');
     const lastBracket = cleanText.lastIndexOf(']');
     const end = Math.max(lastBrace, lastBracket);
     
-    return JSON.parse(cleanText.substring(start, end + 1));
+    if (end === -1 || end < start) return null;
+
+    const jsonString = cleanText.substring(start, end + 1);
+    return JSON.parse(jsonString);
   } catch (e) {
-    console.error("Erro no parse do JSON:", text);
-    throw new Error("Falha ao interpretar dados da IA.");
+    console.error("Falha no parse do JSON:", e);
+    return null;
   }
 };
 
 export const runSimulation = async (input: MatchInput): Promise<SimulationResult> => {
-  const apiKey = getApiKey();
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   
-  const prompt = `Realize uma análise estatística e tática profunda para o jogo: ${input.homeTeamName} vs ${input.awayTeamName} em ${input.date}. 
-  Considere o perfil de risco ${input.riskLevel}. Obs extras: ${input.observations}.
-  OBRIGATÓRIO: Retorne apenas um JSON seguindo a interface SimulationResult.`;
+  const prompt = `Analise o jogo: ${input.homeTeamName} vs ${input.awayTeamName} em ${input.date}. 
+  Perfil de risco: ${input.riskLevel}. Obs: ${input.observations}.
+  Use o Google Search para verificar escalações reais e lesões recentes.
+  RETORNE APENAS O JSON seguindo a interface SimulationResult.`;
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: prompt,
-    config: { tools: [{ googleSearch: {} }] },
+    config: { 
+      tools: [{ googleSearch: {} }],
+      temperature: 0.1
+    },
   });
   
   const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
@@ -52,7 +64,7 @@ export const runSimulation = async (input: MatchInput): Promise<SimulationResult
     .map((chunk: any) => ({ uri: chunk.web.uri, title: chunk.web.title }));
 
   const data = parseGeminiResponse(response.text);
-  if (!data) throw new Error("Informações não encontradas para este confronto.");
+  if (!data) throw new Error("Não foi possível processar a simulação agora.");
 
   return { ...data, matchDate: input.date, sources };
 };
@@ -66,12 +78,16 @@ export const runBatchSimulation = async (matches: BatchMatchInput[], risk: RiskL
     if (onProgress) onProgress(i + 1, matches.length, `Analisando: ${m.homeTeam} x ${m.awayTeam}`);
     
     const prompt = `Simule: ${m.homeTeam} vs ${m.awayTeam} (${m.date}). JSON estrito: {homeWinProb, drawProb, awayWinProb, summary, bettingTip, bettingTipCode}`;
-    const resp = await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: prompt });
+    const resp = await ai.models.generateContent({ 
+      model: "gemini-3-flash-preview", 
+      contents: prompt,
+      config: { temperature: 0.1 }
+    });
     const parsed = parseGeminiResponse(resp.text);
     if (parsed) {
       results.push({ ...parsed, id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam });
     }
-    await delay(500);
+    await delay(300);
   }
   return results;
 };
@@ -80,34 +96,71 @@ export const fetchLoteriaMatches = async (concurso: string): Promise<BatchMatchI
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const resp = await ai.models.generateContent({ 
     model: "gemini-3-flash-preview", 
-    contents: `Liste os 14 jogos da Loteca concurso ${concurso}. Se não encontrar, retorne um array vazio []. JSON Array: [{homeTeam, awayTeam, date}]`,
+    contents: `Pesquise no Google pelos 14 jogos da Loteca concurso ${concurso}. 
+    Se não encontrar este número exato, retorne os jogos do concurso oficial mais recente. 
+    JSON Array: [{homeTeam, awayTeam, date}]`,
     config: { tools: [{ googleSearch: {} }] }
   });
-  return parseGeminiResponse(resp.text) || [];
+  const data = parseGeminiResponse(resp.text);
+  return Array.isArray(data) ? data.map((m: any, i: number) => ({ ...m, id: (i+1).toString() })) : [];
 };
 
 export const runVarAnalysis = async (h: string, a: string, d: string): Promise<VarAnalysisResult> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const prompt = `Utilize o Google Search para encontrar "análise de arbitragem", "lances polêmicos" e "polêmicas do VAR" para o jogo ${h} x ${a} ocorrido em ${d}.
+  Pesquise especificamente em sites como Globo Esporte (GE), UOL Esporte, ESPN Brasil e Gazeta Esportiva.
+  Procure por citações de comentaristas de arbitragem (Ex: PC Oliveira, Sálvio Spínola, Nadine Basttos).
+  
+  RETORNE UM JSON NO FORMATO: 
+  {
+    "referee": "Nome do Árbitro",
+    "refereeGrade": 0.0,
+    "summary": "Resumo das opiniões dos especialistas sobre a arbitragem geral",
+    "incidents": [
+      {
+        "minute": "Tempo do lance",
+        "description": "O que aconteceu (ex: Pênalti não marcado)",
+        "expertOpinion": "O que os especialistas de notícias disseram sobre o lance",
+        "verdict": "CORRECT" | "ERROR" | "CONTROVERSIAL"
+      }
+    ]
+  }`;
+
   const resp = await ai.models.generateContent({ 
-    model: "gemini-3-flash-preview", 
-    contents: `Análise de arbitragem histórica para ${h} x ${a} em ${d}. Se não houver dados específicos, analise o perfil do árbitro e estilo dos times. JSON: {referee, refereeGrade, summary, incidents: [{minute, description, expertOpinion, verdict}]}`,
-    config: { tools: [{ googleSearch: {} }] }
+    model: "gemini-3-pro-preview", 
+    contents: prompt,
+    config: { 
+      tools: [{ googleSearch: {} }],
+      temperature: 0.2
+    }
   });
+
   const data = parseGeminiResponse(resp.text);
-  if (!data) throw new Error("Não foi possível realizar a análise deste jogo.");
-  return { ...data, match: `${h} x ${a}`, date: d, sources: [] };
+  if (!data) throw new Error("A IA não conseguiu encontrar detalhes de arbitragem suficientes para este jogo.");
+  
+  const groundingChunks = resp.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+  const sources = groundingChunks
+    .filter((chunk: any) => chunk.web)
+    .map((chunk: any) => ({ uri: chunk.web.uri, title: chunk.web.title }));
+
+  return { ...data, match: `${h} x ${a}`, date: d, sources };
 };
 
 export const findMatchesByYear = async (tA: string, tB: string, y: string): Promise<MatchCandidate[]> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const prompt = `Pesquise no Google por partidas de futebol REAIS entre "${tA}" e "${tB}" no ano de ${y}.
+  Busque em tabelas de campeonatos oficiais (Série A, Copa do Brasil, Libertadores, Estaduais).
+  IMPORTANTE: Se encontrar jogos, retorne um array JSON. Se NÃO encontrar nada oficial, retorne um array vazio [].
+  JSON FORMAT: [{date, homeTeam, awayTeam, score, competition}]`;
+
   const resp = await ai.models.generateContent({ 
-    model: "gemini-3-flash-preview", 
-    contents: `Pesquise partidas reais entre ${tA} e ${tB} no ano ${y}. 
-    IMPORTANTE: Se não encontrar nenhuma partida oficial, retorne APENAS um array vazio []. 
-    JSON Array: [{date, homeTeam, awayTeam, score, competition}]`,
+    model: "gemini-3-pro-preview", 
+    contents: prompt,
     config: { tools: [{ googleSearch: {} }] }
   });
-  return parseGeminiResponse(resp.text) || [];
+  
+  const data = parseGeminiResponse(resp.text);
+  return Array.isArray(data) ? data : [];
 };
 
 export const fetchLoteriaPrizeInfo = async (concurso: string): Promise<LoteriaPrizeInfo> => {
