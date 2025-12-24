@@ -1,151 +1,128 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { MatchInput, SimulationResult, BatchMatchInput, BatchResultItem, RiskLevel, LoteriaPrizeInfo, VarAnalysisResult, MatchCandidate, HistoricalTrendResult } from "../types";
+import { MatchInput, SimulationResult, BatchMatchInput, BatchResultItem, RiskLevel, VarAnalysisResult, HistoricalTrendResult } from "../types";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export const getApiKey = (): string => process.env.API_KEY || "";
-
-const parseGeminiResponse = (text: string): any => {
-  if (!text) return null;
-  
+// Função ultra-robusta para extrair JSON de qualquer string retornada pela IA
+const extractJSON = (text: string) => {
   try {
-    // Remove qualquer Markdown de bloco de código
-    let cleanText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-    
-    // Localiza o início real do JSON
-    const firstBrace = cleanText.indexOf('{');
-    const firstBracket = cleanText.indexOf('[');
-    let start = -1;
-
-    if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
-      start = firstBrace;
-    } else if (firstBracket !== -1) {
-      start = firstBracket;
+    const jsonMatch = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
     }
-
-    if (start === -1) return null;
-
-    // Localiza o fim real do JSON
-    const lastBrace = cleanText.lastIndexOf('}');
-    const lastBracket = cleanText.lastIndexOf(']');
-    const end = Math.max(lastBrace, lastBracket);
-    
-    if (end === -1 || end < start) return null;
-
-    const jsonString = cleanText.substring(start, end + 1);
-    return JSON.parse(jsonString);
+    return null;
   } catch (e) {
-    console.error("Erro crítico ao processar resposta JSON da IA. Texto recebido:", text);
+    console.error("Erro ao parsear JSON:", e);
     return null;
   }
 };
 
 export const runSimulation = async (input: MatchInput): Promise<SimulationResult> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  const prompt = `Simule o jogo: ${input.homeTeamName} vs ${input.awayTeamName} em ${input.date}. Risco: ${input.riskLevel}. Use Google Search. Responda apenas com o JSON conforme SimulationResult.`;
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const prompt = `Analise detalhadamente o jogo: ${input.homeTeamName} vs ${input.awayTeamName} em ${input.date}. 
+  Considere o momento: Casa (${input.homeMood}), Fora (${input.awayMood}). Risco: ${input.riskLevel}.
+  Retorne um JSON estrito seguindo a interface SimulationResult.`;
+
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: prompt,
-    config: { tools: [{ googleSearch: {} }], temperature: 0.1 },
+    config: { 
+      tools: [{ googleSearch: {} }],
+      temperature: 0.2 
+    },
   });
-  const data = parseGeminiResponse(response.text);
-  if (!data) throw new Error("Falha na formatação da simulação. Tente novamente.");
-  return { ...data, matchDate: input.date, sources: [] };
+
+  const data = extractJSON(response.text);
+  if (!data) throw new Error("A IA não conseguiu formatar os dados. Tente novamente.");
+  
+  const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
+    ?.filter((c: any) => c.web)
+    ?.map((c: any) => ({ uri: c.web.uri, title: c.web.title })) || [];
+
+  return { ...data, matchDate: input.date, sources };
 };
 
-export const runBatchSimulation = async (matches: BatchMatchInput[], risk: RiskLevel, obs: string, onProgress?: (c: number, t: number, m: string) => void): Promise<BatchResultItem[]> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+export const fetchLoteriaMatches = async (concurso: string): Promise<BatchMatchInput[]> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const prompt = `Liste os 14 jogos da Loteca concurso ${concurso}. Se não encontrar, use o concurso mais recente.
+  Retorne APENAS um array JSON: [{"id": "1", "homeTeam": "Time A", "awayTeam": "Time B", "date": "YYYY-MM-DD"}]`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: prompt,
+    config: { tools: [{ googleSearch: {} }], temperature: 0 }
+  });
+
+  const data = extractJSON(response.text);
+  return Array.isArray(data) ? data : [];
+};
+
+export const runBatchSimulation = async (matches: BatchMatchInput[], risk: RiskLevel, onProgress?: (c: number, t: number, m: string) => void): Promise<BatchResultItem[]> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const results: BatchResultItem[] = [];
+
   for (let i = 0; i < matches.length; i++) {
     const m = matches[i];
-    if (onProgress) onProgress(i + 1, matches.length, `Simulando: ${m.homeTeam} x ${m.awayTeam}`);
-    const prompt = `Simule: ${m.homeTeam} x ${m.awayTeam}. JSON estrito: {homeWinProb, drawProb, awayWinProb, summary, bettingTip, bettingTipCode}`;
-    const resp = await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: prompt, config: { temperature: 0.1 } });
-    const parsed = parseGeminiResponse(resp.text);
-    if (parsed) results.push({ ...parsed, id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam });
+    if (onProgress) onProgress(i + 1, matches.length, `Analisando: ${m.homeTeam} x ${m.awayTeam}`);
+    
+    try {
+      const prompt = `Simule rápido: ${m.homeTeam} vs ${m.awayTeam}. JSON: {"homeWinProb": 0, "drawProb": 0, "awayWinProb": 0, "summary": "...", "bettingTip": "...", "bettingTipCode": "1"}`;
+      const resp = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: { temperature: 0.1 }
+      });
+      const parsed = extractJSON(resp.text);
+      if (parsed) {
+        results.push({ ...parsed, id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam });
+      }
+    } catch (e) {
+      console.error(`Erro no jogo ${m.id}:`, e);
+    }
     await delay(200);
   }
   return results;
 };
 
-export const runHistoricalBacktest = async (team: string, competition: string, year: string): Promise<HistoricalTrendResult> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  const prompt = `Analise o histórico de ${team} em ${competition} (${year}). Use Google Search para resultados REAIS. RETORNE APENAS JSON HistoricalTrendResult.`;
-  const response = await ai.models.generateContent({
-    model: "gemini-3-pro-preview",
-    contents: prompt,
-    config: { tools: [{ googleSearch: {} }], temperature: 0.2 },
-  });
-  const data = parseGeminiResponse(response.text);
-  if (!data) throw new Error("Histórico indisponível no momento.");
-  return data;
-};
-
-export const runVarAnalysis = async (h: string, a: string, d: string): Promise<VarAnalysisResult> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  // Prompt ultra-específico para evitar conversas da IA
-  const prompt = `AJA COMO UM ANALISTA DE ARBITRAGEM. Pesquise no Google Search por "lances polêmicos", "decisões VAR" e "crônica de arbitragem" do jogo ${h} x ${a} em ${d}.
-  Busque em: ge.globo.com, uol.com.br/esporte, espn.com.br.
-  
-  REGRAS:
-  1. Identifique o árbitro principal.
-  2. Liste lances como: gols anulados, pênaltis, expulsões.
-  3. Formate rigorosamente como JSON conforme a estrutura VarAnalysisResult.
-  4. NÃO escreva texto antes ou depois do JSON.
-  
-  JSON STRUCTURE:
-  {
+export const runVarAnalysis = async (home: string, away: string, date: string): Promise<VarAnalysisResult> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const prompt = `Pesquise polêmicas de arbitragem e decisões do VAR para o jogo ${home} vs ${away} em ${date}.
+  Retorne um JSON: {
     "referee": "Nome",
     "refereeGrade": 0,
-    "summary": "Resumo analítico",
+    "summary": "Resumo das polêmicas",
     "incidents": [{"minute": "X", "description": "...", "expertOpinion": "...", "verdict": "CORRECT"}]
   }`;
 
-  const resp = await ai.models.generateContent({ 
-    model: "gemini-3-pro-preview", 
-    contents: prompt, 
-    config: { tools: [{ googleSearch: {} }], temperature: 0.1 } 
+  const resp = await ai.models.generateContent({
+    model: "gemini-3-pro-preview",
+    contents: prompt,
+    config: { tools: [{ googleSearch: {} }], temperature: 0.2 }
   });
 
-  const data = parseGeminiResponse(resp.text);
-  if (!data) {
-    console.error("IA Response:", resp.text);
-    throw new Error("A IA não conseguiu estruturar as polêmicas deste jogo. Verifique se o jogo realmente teve lances polêmicos registrados na imprensa.");
-  }
-  
-  const groundingChunks = resp.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-  const sources = groundingChunks
-    .filter((chunk: any) => chunk.web)
-    .map((chunk: any) => ({ uri: chunk.web.uri, title: chunk.web.title }));
+  const data = extractJSON(resp.text);
+  if (!data) throw new Error("Não encontramos detalhes de arbitragem para este jogo.");
 
-  return { ...data, match: `${h} x ${a}`, date: d, sources: sources.length > 0 ? sources : [] };
+  const sources = resp.candidates?.[0]?.groundingMetadata?.groundingChunks
+    ?.filter((c: any) => c.web)
+    ?.map((c: any) => ({ uri: c.web.uri, title: c.web.title })) || [];
+
+  return { ...data, match: `${home} x ${away}`, date, sources };
 };
 
-export const findMatchesByYear = async (tA: string, tB: string, y: string): Promise<MatchCandidate[]> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  const prompt = `Use o Google Search para encontrar resultados de jogos de futebol REAIS entre "${tA}" e "${tB}" no ano de ${y}.
-  Retorne um ARRAY JSON de objetos [{date, homeTeam, awayTeam, score, competition}].
-  Se não houver confrontos oficiais, retorne apenas um array vazio [].
-  IMPORTANTE: Não invente resultados. Use apenas dados de portais de esportes.`;
+export const runHistoricalBacktest = async (team: string, competition: string, year: string): Promise<HistoricalTrendResult> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const prompt = `Analise o histórico de ${team} em ${competition} (${year}). Use Google Search para dados reais.
+  Retorne um JSON HistoricalTrendResult.`;
 
-  const resp = await ai.models.generateContent({ 
-    model: "gemini-3-pro-preview", 
-    contents: prompt, 
-    config: { tools: [{ googleSearch: {} }], temperature: 0 } 
+  const resp = await ai.models.generateContent({
+    model: "gemini-3-pro-preview",
+    contents: prompt,
+    config: { tools: [{ googleSearch: {} }], temperature: 0.2 }
   });
-  
-  const data = parseGeminiResponse(resp.text);
-  return Array.isArray(data) ? data : [];
-};
 
-export const fetchLoteriaMatches = async (concurso: string): Promise<BatchMatchInput[]> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  const resp = await ai.models.generateContent({ 
-    model: "gemini-3-flash-preview", 
-    contents: `Jogos Loteca ${concurso}. JSON: [{homeTeam, awayTeam, date}]`,
-    config: { tools: [{ googleSearch: {} }] }
-  });
-  const data = parseGeminiResponse(resp.text);
-  return Array.isArray(data) ? data.map((m: any, i: number) => ({ ...m, id: (i+1).toString() })) : [];
+  const data = extractJSON(resp.text);
+  if (!data) throw new Error("Dados históricos indisponíveis.");
+  return data;
 };
