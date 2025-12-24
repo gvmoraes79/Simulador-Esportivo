@@ -112,11 +112,8 @@ export interface BatchResultItem {
   summary: string; 
   weatherText?: string; 
   statsSummary?: string; 
-  
   bettingTip: string; 
   bettingTipCode: string; 
-
-  strategies?: Record<string, { tip: string; code: string }>;
 }
 
 export interface LoteriaPrizeInfo {
@@ -136,20 +133,18 @@ export interface HistoricalDrawStats {
   bestStrategy: RiskLevel;
 }
 
-// VAR MODE TYPES
 export interface VarIncident {
   minute: string;
   description: string;
-  expertOpinion: string; // Opinião da crítica (Ex: PC Oliveira disse que foi pênalti)
-  verdict: 'CORRECT' | 'ERROR' | 'CONTROVERSIAL'; // Veredito final
-  videoRef?: string; // Opcional: Link para vídeo se tiver
+  expertOpinion: string;
+  verdict: 'CORRECT' | 'ERROR' | 'CONTROVERSIAL';
 }
 
 export interface VarAnalysisResult {
   match: string;
   date: string;
   referee: string;
-  refereeGrade: number; // Nota de 0 a 10 baseada na crítica
+  refereeGrade: number;
   summary: string;
   incidents: VarIncident[];
   sources: { title: string; uri: string }[];

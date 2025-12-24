@@ -1,91 +1,57 @@
 
-// Simulação de Backend usando LocalStorage
-
 export interface User {
   username: string;
   password: string; 
   createdAt: string;
-  accessCode?: string; // Rastreia qual código o usuário usou
+  accessCode?: string;
 }
 
 const STORAGE_KEY = 'sportsim_users';
 const SESSION_KEY = 'sportsim_session';
 
-// --- ÁREA DE CONFIGURAÇÃO DE ACESSO (LINHA 13) ---
-// Cadastre aqui os CÓDIGOS que seus amigos usarão para criar conta.
-// O Nome de Usuário eles escolhem na hora do cadastro.
 const ALLOWED_INVITE_CODES = [
-  'ADMIN_MASTER',  // Seu acesso pessoal
-  'VIP_2024',      // Um código genérico para vários amigos
-  'MARCEL',    // Exemplo: Para revogar depois, basta apagar esta linha
-  'DENNIS',  // Outro exemplo
-  'ALEXANDRE'
-  'GONGA'
-  'GUSTAVO'
+  'ADMIN_MASTER',
+  'VIP_2024',
+  'AMIGO_JOAO',
+  'TESTE_GRATIS',
 ];
 
 export const authService = {
-  // Retorna todos os usuários cadastrados
   getUsers: (): User[] => {
     const usersStr = localStorage.getItem(STORAGE_KEY);
     return usersStr ? JSON.parse(usersStr) : [];
   },
 
-  // Valida se um código de convite existe e está ativo
   validateInvite: (code: string): boolean => {
-    // Se a lista estiver vazia, permite qualquer um (modo desenvolvimento)
-    // Se tiver códigos, obriga a bater com um deles
-    if (ALLOWED_INVITE_CODES.length === 0) return true;
-    
-    // Normalização para evitar erros de digitação (Case Insensitive)
     const normalizedInput = code.trim().toUpperCase();
-    const normalizedAllowed = ALLOWED_INVITE_CODES.map(c => c.toUpperCase());
-    
-    return normalizedAllowed.includes(normalizedInput);
+    return ALLOWED_INVITE_CODES.includes(normalizedInput);
   },
 
-  // Registra um novo usuário
   register: (username: string, password: string, inviteCode: string = ''): { success: boolean; message: string } => {
-    // 1. Validação de Convite (Security Check)
-    if (ALLOWED_INVITE_CODES.length > 0) {
-        // Converte tudo para maiúsculo para comparar, evitando erro de "Vip" vs "VIP"
-        const normalizedInput = inviteCode.trim().toUpperCase();
-        const normalizedAllowed = ALLOWED_INVITE_CODES.map(c => c.toUpperCase());
-
-        if (!normalizedAllowed.includes(normalizedInput)) {
-            return { success: false, message: 'Código de convite inválido ou expirado.' };
-        }
+    if (!authService.validateInvite(inviteCode)) {
+      return { success: false, message: 'Código de convite inválido.' };
     }
 
     const users = authService.getUsers();
-    
     if (users.find(u => u.username.toLowerCase() === username.toLowerCase())) {
       return { success: false, message: 'Usuário já existe.' };
-    }
-
-    if (password.length < 4) {
-      return { success: false, message: 'A senha deve ter no mínimo 4 caracteres.' };
     }
 
     const newUser: User = {
       username,
       password, 
-      accessCode: inviteCode.toUpperCase(), // Salva padronizado
+      accessCode: inviteCode.toUpperCase(),
       createdAt: new Date().toISOString()
     };
 
     users.push(newUser);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(users));
-    
-    // Auto-login após registro
     authService.login(username, password);
     
-    return { success: true, message: 'Conta criada com sucesso!' };
+    return { success: true, message: 'Conta criada!' };
   },
 
-  // Realiza login
   login: (username: string, password: string): { success: boolean; message: string } => {
-    // Backdoor original mantido para testes (LINHA 68 - Usuário fixo de emergência)
     if (username === 'admin' && password === '1234') {
         localStorage.setItem(SESSION_KEY, 'admin');
         return { success: true, message: 'Bem-vindo, Admin.' };
@@ -96,19 +62,12 @@ export const authService = {
 
     if (user) {
       localStorage.setItem(SESSION_KEY, user.username);
-      return { success: true, message: `Bem-vindo de volta, ${user.username}.` };
+      return { success: true, message: `Bem-vindo, ${user.username}.` };
     }
 
-    return { success: false, message: 'Usuário ou senha incorretos.' };
+    return { success: false, message: 'Login inválido.' };
   },
 
-  // Verifica se há sessão ativa
-  checkSession: (): string | null => {
-    return localStorage.getItem(SESSION_KEY);
-  },
-
-  // Logout
-  logout: () => {
-    localStorage.removeItem(SESSION_KEY);
-  }
+  checkSession: (): string | null => localStorage.getItem(SESSION_KEY),
+  logout: () => localStorage.removeItem(SESSION_KEY)
 };

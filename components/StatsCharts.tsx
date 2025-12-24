@@ -2,132 +2,64 @@
 import React from 'react';
 import { 
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer,
-  PieChart, Pie, Cell, Tooltip, Legend,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid
+  PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from 'recharts';
 import { SimulationResult } from '../types';
 
-interface StatsChartsProps {
-  data: SimulationResult;
-}
-
-export const ComparisonRadar: React.FC<StatsChartsProps> = ({ data }) => {
+export const ComparisonRadar: React.FC<{ data: SimulationResult }> = ({ data }) => {
   const chartData = [
-    { subject: 'Ataque', A: data.homeTeam.attackRating, B: data.awayTeam.attackRating, fullMark: 100 },
-    { subject: 'Defesa', A: data.homeTeam.defenseRating, B: data.awayTeam.defenseRating, fullMark: 100 },
-    { subject: 'Posse', A: data.homeTeam.possessionEst, B: data.awayTeam.possessionEst, fullMark: 100 },
-    { subject: 'Momento', A: data.homeTeam.winProbability, B: data.awayTeam.winProbability, fullMark: 100 },
-    { subject: 'Tática', A: Math.min(100, data.homeTeam.attackRating * 1.1), B: Math.min(100, data.awayTeam.attackRating * 1.1), fullMark: 100 },
+    { subject: 'Ataque', A: data.homeTeam.attackRating, B: data.awayTeam.attackRating },
+    { subject: 'Defesa', A: data.homeTeam.defenseRating, B: data.awayTeam.defenseRating },
+    { subject: 'Posse', A: data.homeTeam.possessionEst, B: data.awayTeam.possessionEst },
+    { subject: 'Momento', A: data.homeTeam.winProbability, B: data.awayTeam.winProbability },
+    { subject: 'Tática', A: 75, B: 70 },
   ];
 
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <RadarChart cx="50%" cy="50%" outerRadius="75%" data={chartData}>
+        <RadarChart cx="50%" cy="50%" outerRadius="80%" data={chartData}>
           <PolarGrid stroke="#334155" />
-          <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 'bold' }} />
-          <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-          <Radar
-            name={data.homeTeam.name}
-            dataKey="A"
-            stroke="#3b82f6"
-            strokeWidth={2}
-            fill="#3b82f6"
-            fillOpacity={0.3}
-          />
-          <Radar
-            name={data.awayTeam.name}
-            dataKey="B"
-            stroke="#ef4444"
-            strokeWidth={2}
-            fill="#ef4444"
-            fillOpacity={0.3}
-          />
-          <Tooltip 
-            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)' }}
-            itemStyle={{ color: '#f8fafc', fontWeight: '500' }}
-            labelStyle={{ color: '#94a3b8' }}
-          />
-          <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }}/>
+          <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+          <Radar name={data.homeTeam.name} dataKey="A" stroke="#10b981" fill="#10b981" fillOpacity={0.4} />
+          <Radar name={data.awayTeam.name} dataKey="B" stroke="#ef4444" fill="#ef4444" fillOpacity={0.4} />
         </RadarChart>
       </ResponsiveContainer>
     </div>
   );
 };
 
-export const ProbabilityPie: React.FC<StatsChartsProps> = ({ data }) => {
+export const ProbabilityPie: React.FC<{ data: SimulationResult }> = ({ data }) => {
   const chartData = [
-    { name: `Vitória ${data.homeTeam.name}`, value: data.homeTeam.winProbability },
+    { name: 'Casa', value: data.homeTeam.winProbability },
     { name: 'Empate', value: data.drawProbability },
-    { name: `Vitória ${data.awayTeam.name}`, value: data.awayTeam.winProbability },
+    { name: 'Fora', value: data.awayTeam.winProbability },
   ];
-
-  // Cores semânticas: Azul (Home), Cinza (Empate), Vermelho (Away)
-  const COLORS = ['#3b82f6', '#94a3b8', '#ef4444'];
+  const COLORS = ['#10b981', '#334155', '#ef4444'];
 
   return (
-    <div className="h-64 w-full">
+    <div className="h-48 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Pie
-            data={chartData}
-            cx="50%"
-            cy="50%"
-            innerRadius={60}
-            outerRadius={80}
-            paddingAngle={4}
-            dataKey="value"
-            stroke="none"
-          >
-            {chartData.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-            ))}
+          <Pie data={chartData} innerRadius={50} outerRadius={70} dataKey="value" stroke="none">
+            {chartData.map((_, i) => <Cell key={i} fill={COLORS[i]} />)}
           </Pie>
-          <Tooltip 
-             contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)' }}
-             itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }}
-             formatter={(value: number) => [`${value}%`, 'Probabilidade']}
-          />
-          <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', color: '#cbd5e1' }}/>
+          <Tooltip />
         </PieChart>
       </ResponsiveContainer>
     </div>
   );
 };
 
-export const ScoreProbabilitiesChart: React.FC<StatsChartsProps> = ({ data }) => {
+export const ScoreProbabilitiesChart: React.FC<{ data: SimulationResult }> = ({ data }) => {
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart
-          data={data.exactScores}
-          layout="vertical"
-          margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-        >
+        <BarChart data={data.exactScores} layout="vertical">
           <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
           <XAxis type="number" hide />
-          <YAxis 
-            dataKey="score" 
-            type="category" 
-            tick={{ fill: '#e2e8f0', fontSize: 12, fontWeight: 'bold' }} 
-            width={40}
-            axisLine={false}
-            tickLine={false}
-          />
-          <Tooltip
-            cursor={{fill: '#1e293b', opacity: 0.5}}
-            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)' }}
-            itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }}
-            labelStyle={{ color: '#94a3b8' }}
-            formatter={(value: number) => [`${value}%`, 'Chance']}
-          />
-          <Bar dataKey="probability" radius={[0, 4, 4, 0]} barSize={16}>
-             {
-                data.exactScores.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={index === 0 ? '#10b981' : '#4f46e5'} />
-                ))
-             }
-          </Bar>
+          <YAxis dataKey="score" type="category" tick={{ fill: '#94a3b8', fontSize: 12 }} width={50} />
+          <Bar dataKey="probability" fill="#3b82f6" radius={[0, 4, 4, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
