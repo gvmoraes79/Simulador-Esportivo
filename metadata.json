@@ -1,7 +1,9 @@
 {
   "name": "SportSim Pro",
-  "description": "Simulador de resultados esportivos utilizando IA e análise de dados em tempo real.",
+  "description": "Simulador de resultados esportivos utilizando IA e análise de dados em tempo real com exportação profissional.",
   "requestFramePermissions": [
-    "geolocation"
-  ]
+    "geolocation",
+    "camera"
+  ],
+  "pwa": true
 }

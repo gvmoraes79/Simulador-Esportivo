@@ -12,6 +12,8 @@ import { authService } from './services/authService';
 import { Loader2, Activity, Trophy, History, MonitorPlay, LogOut, Share2, Check } from 'lucide-react';
 import LoginScreen from './components/LoginScreen';
 
+const CACHE_KEY = 'sportsim_last_result';
+
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [mode, setMode] = useState<'single' | 'batch' | 'history' | 'var'>('single');
@@ -29,7 +31,13 @@ const App: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const invite = params.get('invite');
     if (invite) setInitialInvite(invite);
-    if (authService.checkSession()) setIsAuthenticated(true);
+    
+    if (authService.checkSession()) {
+      setIsAuthenticated(true);
+      // Restaurar última simulação
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) setResult(JSON.parse(cached));
+    }
   }, []);
 
   const handleShare = () => {
@@ -45,11 +53,17 @@ const App: React.FC = () => {
     try {
       const data = await runSimulation(input);
       setResult(data);
+      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
     } catch (e: any) {
       alert(e.message || "Erro na simulação.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetSimulation = () => {
+    setResult(null);
+    localStorage.removeItem(CACHE_KEY);
   };
 
   if (!isAuthenticated) return <LoginScreen onLogin={() => setIsAuthenticated(true)} initialInviteCode={initialInvite} />;
@@ -59,7 +73,7 @@ const App: React.FC = () => {
       <header className="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-50 backdrop-blur-md h-20 flex items-center justify-between px-6 shadow-xl">
         <div className="flex items-center gap-3">
            <Trophy className="text-emerald-500" size={28} />
-           <h1 className="text-2xl font-black italic uppercase tracking-tighter">
+           <h1 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter">
              SportSim <span className="text-emerald-500">Pro</span>
            </h1>
         </div>
@@ -71,7 +85,7 @@ const App: React.FC = () => {
             { id: 'history', label: 'Histórico', icon: History },
             { id: 'var', label: 'VAR', icon: MonitorPlay }
           ].map(t => (
-            <button key={t.id} onClick={() => { setMode(t.id as any); setResult(null); }} className={`px-5 py-2 rounded-full text-xs font-bold uppercase flex items-center gap-2 transition-all ${mode === t.id ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+            <button key={t.id} onClick={() => { setMode(t.id as any); }} className={`px-5 py-2 rounded-full text-xs font-bold uppercase flex items-center gap-2 transition-all ${mode === t.id ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
               <t.icon size={14} /> {t.label}
             </button>
           ))}
@@ -87,19 +101,19 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-6 py-10">
+      <main className="max-w-5xl mx-auto p-4 md:p-6 py-10">
         {mode === 'single' && (
           !result ? (
             <div className="max-w-2xl mx-auto">
-              <form onSubmit={handleSimulate} className="bg-slate-900/60 backdrop-blur-xl p-10 rounded-[2.5rem] border border-slate-800 space-y-8 shadow-2xl animate-fade-in-up">
+              <form onSubmit={handleSimulate} className="bg-slate-900/60 backdrop-blur-xl p-6 md:p-10 rounded-[2.5rem] border border-slate-800 space-y-8 shadow-2xl animate-fade-in-up">
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Mandante</label>
-                      <input type="text" placeholder="Nome do Time" className="w-full bg-slate-950 border border-slate-800 p-5 rounded-2xl text-center font-black text-xl placeholder:text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none transition-all" value={input.homeTeamName} onChange={e => setInput({...input, homeTeamName: e.target.value})} required />
+                      <input type="text" placeholder="Time A" className="w-full bg-slate-950 border border-slate-800 p-5 rounded-2xl text-center font-black text-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all" value={input.homeTeamName} onChange={e => setInput({...input, homeTeamName: e.target.value})} required />
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Visitante</label>
-                      <input type="text" placeholder="Nome do Time" className="w-full bg-slate-950 border border-slate-800 p-5 rounded-2xl text-center font-black text-xl placeholder:text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none transition-all" value={input.awayTeamName} onChange={e => setInput({...input, awayTeamName: e.target.value})} required />
+                      <input type="text" placeholder="Time B" className="w-full bg-slate-950 border border-slate-800 p-5 rounded-2xl text-center font-black text-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all" value={input.awayTeamName} onChange={e => setInput({...input, awayTeamName: e.target.value})} required />
                     </div>
                  </div>
 
@@ -121,13 +135,28 @@ const App: React.FC = () => {
               </form>
             </div>
           ) : (
-            <ResultView result={result} onReset={() => setResult(null)} />
+            <ResultView result={result} onReset={resetSimulation} />
           )
         )}
         {mode === 'batch' && <BatchMode />}
         {mode === 'history' && <HistoryMode />}
         {mode === 'var' && <VarMode />}
       </main>
+
+      {/* Mobile Navigation */}
+      <nav className="md:hidden fixed bottom-0 left-0 w-full bg-slate-900 border-t border-slate-800 grid grid-cols-4 p-2 pb-6 z-50">
+          {[
+            { id: 'single', icon: Activity },
+            { id: 'batch', icon: Trophy },
+            { id: 'history', icon: History },
+            { id: 'var', icon: MonitorPlay }
+          ].map(t => (
+            <button key={t.id} onClick={() => setMode(t.id as any)} className={`flex flex-col items-center gap-1 py-2 ${mode === t.id ? 'text-emerald-500' : 'text-slate-500'}`}>
+              <t.icon size={20} />
+              <span className="text-[8px] font-bold uppercase">{t.id}</span>
+            </button>
+          ))}
+      </nav>
     </div>
   );
 };

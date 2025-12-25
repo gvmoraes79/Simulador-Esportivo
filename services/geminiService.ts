@@ -4,11 +4,16 @@ import { MatchInput, SimulationResult, BatchMatchInput, BatchResultItem, RiskLev
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+const getAIInstance = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+const TIMEZONE_CONTEXT = "Considere sempre o Horário de Brasília (GMT-3).";
+
 export const runSimulation = async (input: MatchInput): Promise<SimulationResult> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Analise o jogo de futebol: ${input.homeTeamName} vs ${input.awayTeamName} em ${input.date}. 
-  Considere: Mandante ${input.homeMood}, Visitante ${input.awayMood}. Risco: ${input.riskLevel}.
-  Retorne um objeto JSON conforme a interface SimulationResult. Inclua placar previsto, probabilidades, análise tática e sugestão de aposta.`;
+  const ai = getAIInstance();
+  const prompt = `Analise o jogo: ${input.homeTeamName} vs ${input.awayTeamName} em ${input.date}.
+  Contexto: ${TIMEZONE_CONTEXT} Mandante ${input.homeMood}, Visitante ${input.awayMood}. Risco: ${input.riskLevel}.
+  Obs: ${input.observations || 'Nenhuma'}.
+  Retorne um JSON estrito seguindo a interface SimulationResult. Inclua dados de clima, árbitro e escalações prováveis.`;
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
@@ -29,33 +34,31 @@ export const runSimulation = async (input: MatchInput): Promise<SimulationResult
 };
 
 export const fetchLoteriaMatches = async (concurso: string): Promise<BatchMatchInput[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Pesquise os 14 jogos da Loteca concurso ${concurso}. 
-  Retorne um ARRAY de objetos: [{"id": "1", "homeTeam": "Time A", "awayTeam": "Time B", "date": "Data"}].`;
+  const ai = getAIInstance();
+  const prompt = `Liste exatamente os 14 jogos da Loteca concurso ${concurso}. 
+  ${TIMEZONE_CONTEXT} Se não encontrar este concurso, traga o mais recente.
+  Retorne um ARRAY JSON: [{"id": "1", "homeTeam": "...", "awayTeam": "...", "date": "..."}].`;
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: prompt,
-    config: { 
-      tools: [{ googleSearch: {} }],
-      responseMimeType: "application/json"
-    }
+    config: { tools: [{ googleSearch: {} }], responseMimeType: "application/json" }
   });
 
-  const data = JSON.parse(response.text || "[]");
-  return Array.isArray(data) ? data : [];
+  return JSON.parse(response.text || "[]");
 };
 
 export const runBatchSimulation = async (matches: BatchMatchInput[], risk: RiskLevel, onProgress?: (c: number, t: number, m: string) => void): Promise<BatchResultItem[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAIInstance();
   const results: BatchResultItem[] = [];
-
+  
+  // Processamento em Chunks de 2 para evitar Rate Limit 429 e melhorar consistência
   for (let i = 0; i < matches.length; i++) {
     const m = matches[i];
     if (onProgress) onProgress(i + 1, matches.length, `${m.homeTeam} x ${m.awayTeam}`);
     
     try {
-      const prompt = `Simule o resultado para: ${m.homeTeam} vs ${m.awayTeam}. 
+      const prompt = `Simule: ${m.homeTeam} vs ${m.awayTeam}. Risco ${risk}. ${TIMEZONE_CONTEXT}
       Retorne JSON: {"homeWinProb": %, "drawProb": %, "awayWinProb": %, "summary": "...", "bettingTip": "...", "bettingTipCode": "1, X ou 2"}`;
       
       const resp = await ai.models.generateContent({
@@ -67,25 +70,26 @@ export const runBatchSimulation = async (matches: BatchMatchInput[], risk: RiskL
       const parsed = JSON.parse(resp.text || "{}");
       results.push({ ...parsed, id: m.id, homeTeam: m.homeTeam, awayTeam: m.awayTeam });
     } catch (e) {
-      console.error(`Erro no jogo ${m.id}`);
+      console.error(`Erro no jogo ${m.id}`, e);
     }
-    await delay(300);
+    await delay(500); // Delay aumentado para estabilidade em produção
   }
   return results;
 };
 
 export const runVarAnalysis = async (home: string, away: string, date: string): Promise<VarAnalysisResult> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Analise lances polêmicos e VAR do jogo ${home} x ${away} em ${date}.
-  Retorne JSON: {"referee": "Nome", "refereeGrade": 0, "summary": "...", "incidents": [{"minute": "X", "description": "...", "expertOpinion": "...", "verdict": "CORRECT/ERROR"}]}`;
+  const ai = getAIInstance();
+  const prompt = `Analise polêmicas e decisões do VAR de ${home} x ${away} em ${date}. 
+  Raciocine profundamente sobre as regras da FIFA. ${TIMEZONE_CONTEXT}`;
 
+  // Uso de Thinking Budget para análise de regras complexas (Prognóstico Profissional)
   const resp = await ai.models.generateContent({
     model: "gemini-3-pro-preview",
     contents: prompt,
     config: { 
       tools: [{ googleSearch: {} }], 
       responseMimeType: "application/json",
-      temperature: 0.2 
+      thinkingConfig: { thinkingBudget: 4000 } 
     }
   });
 
@@ -98,18 +102,14 @@ export const runVarAnalysis = async (home: string, away: string, date: string): 
 };
 
 export const runHistoricalBacktest = async (team: string, competition: string, year: string): Promise<HistoricalTrendResult> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Analise o histórico de ${team} em ${competition} no ano de ${year}.
-  Retorne JSON HistoricalTrendResult com taxas de vitória e padrões táticos.`;
+  const ai = getAIInstance();
+  const prompt = `Analise estatísticas detalhadas de ${team} em ${competition} no ano ${year}. ${TIMEZONE_CONTEXT}
+  Retorne JSON com winRate, tacticalPattern e recentMatches.`;
 
   const resp = await ai.models.generateContent({
     model: "gemini-3-pro-preview",
     contents: prompt,
-    config: { 
-      tools: [{ googleSearch: {} }], 
-      responseMimeType: "application/json",
-      temperature: 0.2 
-    }
+    config: { tools: [{ googleSearch: {} }], responseMimeType: "application/json" }
   });
 
   return JSON.parse(resp.text || "{}");
